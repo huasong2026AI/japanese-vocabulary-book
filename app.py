@@ -4,6 +4,7 @@ import os
 import csv
 import io
 import base64
+import re
 from zhipuai import ZhipuAI
 from pypdf import PdfReader
 
@@ -17,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 彻底修复换行解析 Bug：将参数直接规整传入
+# 稳妥的单行样式注入，避开 Python 语法解析 bug
 css_style = """
 <style>
     .main { background-color: #f4f7f5; }
@@ -31,10 +32,11 @@ css_style = """
 st.markdown(css_style, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 智谱 AI 安全连接（精准绑定你的免费资源包）
+# 2. 智谱 AI 安全连接（精准绑定官方免费模型）
 # ==========================================
-FREE_TEXT_MODEL = "glm-4.7"
-FREE_VISION_MODEL = "glm-4.6v"
+# 修正为官方标准免费模型名称
+FREE_TEXT_MODEL = "glm-4-flash"
+FREE_VISION_MODEL = "glm-4v-flash"
 
 if "ZHIPU_API_KEY" in st.secrets:
     api_key = st.secrets["ZHIPU_API_KEY"]
@@ -132,7 +134,7 @@ if uploaded_csv:
             st.sidebar.success(f"🎉 成功导入 {imported_count} 条卡片数据！")
             st.rerun()
     except Exception as e:
-        st.sidebar.error(f"解析失败: {str(e)}")
+        st.sidebar.error(f"导入失败: {str(e)}")
 
 st.sidebar.subheader("📸 智能扫描（图片/PDF）")
 scanned_file = st.sidebar.file_uploader("上传日剧截图或PDF，AI分词", type=["pdf", "png", "jpg", "jpeg", "webp"])
@@ -142,6 +144,7 @@ if scanned_file and client_ai:
     with st.spinner("AI 正在解析原始文本并提取词汇..."):
         extracted_text = ""
         filename = scanned_file.name.lower()
+        
         if filename.endswith(".pdf"):
             try:
                 reader = PdfReader(scanned_file)
@@ -153,12 +156,13 @@ if scanned_file and client_ai:
             try:
                 image_bytes = scanned_file.read()
                 base64_image = base64.b64encode(image_bytes).decode('utf-8')
+                # 按照官方标准调整多模态传入格式
                 response = client_ai.chat.completions.create(
                     model=FREE_VISION_MODEL,
                     messages=[{
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "请仔细辨认并提取出图片里的所有日语文本。不要任何解释说明，直接输出原文。"},
+                            {"type": "text", "text": "请把图片中的所有日语台词或日语文本全部识别出来。直接输出日语原文，不需要任何解释。"},
                             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                         ]
                     }],
@@ -166,14 +170,14 @@ if scanned_file and client_ai:
                 )
                 extracted_text = response.choices[0].message.content.strip()
             except Exception as e:
-                st.sidebar.error(f"图片OCR失败: {str(e)}")
+                st.sidebar.error(f"图片扫描失败: {str(e)}")
         
         if extracted_text.strip():
             try:
                 filter_prompt = (
-                    "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
-                    f"目标文本：\n{extracted_text}\n\n"
-                    "请直接返回一个纯JSON格式的字符串数组，例：[\"単語1\", \"単語2\"]，不要使用 markdown 标记包裹。"
+                    "请从下面这段日语文本中，提取出适合学习的日语单词。\n"
+                    f"目标文本：{extracted_text}\n\n"
+                    "【严格要求】：请直接返回一个标准的JSON字符串数组，例如：[\"単語1\", \"単語2\"]。不要包含任何Markdown标记包裹。"
                 )
                 res = client_ai.chat.completions.create(
                     model=FREE_TEXT_MODEL,
@@ -181,11 +185,14 @@ if scanned_file and client_ai:
                     temperature=0.2
                 )
                 raw_arr = res.choices[0].message.content.strip()
-                if raw_arr.startswith("```"):
-                    raw_arr = raw_arr.split("\n", 1)[1].rsplit("\n", 1)[0]
+                
+                if "```" in raw_arr:
+                    raw_arr = re.sub(r"```(json)?", "", raw_arr).strip()
+                
                 extracted_words = json.loads(raw_arr)
             except:
-                extracted_words = [w.strip() for w in extracted_text.split() if w.strip()][:15]
+                extracted_words = re.findall(r'[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FA5]+', extracted_text)
+                extracted_words = [w for w in extracted_words if len(w) > 1][:12]
 
 if extracted_words:
     st.sidebar.write("📌 点击下方提取到的生词快速填表：")
@@ -221,14 +228,14 @@ with col_form:
                     "你是一个精通中日双语的日语教学专家。请为以下日语生词进行解析。\n"
                     f"待解析生词：{in_word}\n"
                     f"用户提供的情境提示：{in_hint if in_hint else '无'}\n\n"
-                    "请严格按照以下 JSON 格式返回数据，不要包含 any markdown tags，不要有任何废话：\n"
+                    "请严格按照以下 JSON 格式返回数据，不要包含任何 markdown 标记：\n"
                     "{\n"
                     '  "furigana": "该生词的纯假名发音",\n'
                     '  "meaning_zh": "该生词最准确的中文含义",\n'
                     '  "meaning_ja": "用简单易懂、符合N4水平的日语来解释该词的意思。",\n'
                     '  "context_source": "情境出处，如日剧台词、日常口语",\n'
                     '  "example_sentence": "一句高频生活例句并附带括号中文翻译",\n'
-                    '  "tags": "只能从以下两个标签中选择一个填入：若属于动漫/日剧/台词填\'日剧\'，若是通用生活口语则填\'日常\'"\n'
+                    '  "tags": "只能从\'日剧\'或\'日常\'中选择一个"\n'
                     "}"
                 )
                 try:
@@ -238,8 +245,8 @@ with col_form:
                         temperature=0.3,
                     )
                     raw_text = response.choices[0].message.content.strip()
-                    if raw_text.startswith("```"):
-                        raw_text = raw_text.split("\n", 1)[1].rsplit("\n", 1)[0]
+                    if "```" in raw_text:
+                        raw_text = re.sub(r"```(json)?", "", raw_text).strip()
                     st.session_state["ai_response"] = json.loads(raw_text)
                 except Exception as e:
                     st.error(f"大模型解析失败: {str(e)}")
@@ -323,7 +330,6 @@ with col_cards:
                             st.rerun()
             else:
                 with st.container():
-                    # 调用安全包装后的样式注入
                     card_html = f"""
                     <div class="card-container">
                         <span style="font-size:11px; background:#4a7c6c; color:white; padding:2px 6px; border-radius:4px;">{card['context_source']}</span>
