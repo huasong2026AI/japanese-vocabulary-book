@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 注入森林绿主题样式（增加了森林树洞虚线框和胶囊按钮的样式）
+# 注入森林绿主题样式（修复虚线框跑偏和胶囊横向排版）
 st.markdown("""
     <style>
     :root {
@@ -32,30 +32,37 @@ st.markdown("""
         background-color: #2d4a43 !important;
         color: white !important;
     }
-    /* 森林树洞虚线卡片 */
-    .tree-hollow-box {
-        background-color: #fdfaf4;
-        border: 2px dashed #8ba89e;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 20px;
+    /* 将原生 border 容器伪装成漂亮的森林虚线树洞 */
+    div[data-testid="stVerticalBlockBorderContainer"] {
+        border: 2px dashed #8ba89e !important;
+        background-color: #fdfaf4 !important;
+        border-radius: 12px !important;
+        padding: 18px !important;
     }
-    /* 生词胶囊样式 */
-    div.stButton > button.word-pill-btn {
+    /* 强行让生词胶囊横向排列，不占用垂直空间 */
+    div[data-testid="stHorizontalBlock"] .word-pill-container,
+    .pill-wrapper {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+        margin-bottom: 10px;
+    }
+    /* 自定义胶囊按钮样式 */
+    div.stButton > button[kind="secondary"] {
         background-color: #ebdcb9 !important;
         color: #5a4525 !important;
-        border: none !important;
-        padding: 4px 10px !important;
-        border-radius: 14px !important;
-        font-size: 12px !important;
-        margin: 4px !important;
+        border: 1px solid #ebdcb9 !important;
+        padding: 4px 14px !important;
+        border-radius: 20px !important;
+        font-size: 13px !important;
         font-weight: bold !important;
-        display: inline-block !important;
-        width: auto !important;
+        transition: all 0.2s ease;
     }
-    div.stButton > button.word-pill-btn:hover {
+    div.stButton > button[kind="secondary"]:hover {
         background-color: #4a7c6c !important;
         color: white !important;
+        border-color: #4a7c6c !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -113,8 +120,9 @@ if "input_fields" not in st.session_state:
     st.session_state.input_fields = {}
 if "hollow_words" not in st.session_state:
     st.session_state.hollow_words = []
-if "claimed_word" not in st.session_state:
-    st.session_state.claimed_word = ""
+# 初始化生词输入框的状态值
+if "in_word_actual" not in st.session_state:
+    st.session_state["in_word_actual"] = ""
 
 # ==========================================
 # 4. Streamlit 页面头部与导入导出
@@ -172,82 +180,84 @@ left_col, right_col = st.columns([1, 1])
 
 # --- 左栏：输入与 AI 生成端 ---
 with left_col:
-    # 🌲 森林树洞部分（完美移植虚线框效果）
-    st.markdown('<div class="tree-hollow-box">', unsafe_allow_html=True)
-    st.markdown("<span style='color:#846226; font-weight:bold; font-size:14px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
-    st.markdown("<span style='color:#a49070; font-size:12px; display:block; margin-bottom:8px;'>上传日剧截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
     
-    hollow_file = st.file_uploader("选择文件", type=["png", "jpg", "jpeg", "webp", "pdf"], key="hollow_uploader", label_visibility="collapsed")
-    
-    if hollow_file is not None:
-        file_bytes = hollow_file.read()
-        filename = hollow_file.name.lower()
-        extracted_text = ""
+    # 🌲 森林树洞部分（使用原生容器 border+自定义 CSS，彻底解决虚线框跑偏）
+    with st.container(border=True):
+        st.markdown("<span style='color:#846226; font-weight:bold; font-size:15px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
+        st.markdown("<span style='color:#a49070; font-size:12px; display:block; margin-bottom:10px;'>上传日剧截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
         
-        # 避免每次重渲染都重新请求 AI，仅在数据为空时解析
-        if not st.session_state.hollow_words:
-            with st.spinner("🌲 树洞正在努力解析文件..."):
-                try:
-                    if filename.endswith(".pdf"):
-                        reader = PdfReader(io.BytesIO(file_bytes))
-                        for page in reader.pages[:5]:
-                            extracted_text += page.extract_text() or ""
-                    else:
-                        # 使用多模态大模型 glm-4v-flash 解析图片
-                        base64_image = base64.b64encode(file_bytes).decode('utf-8')
-                        response = client_ai.chat.completions.create(
-                            model="glm-4v-flash",
-                            messages=[{
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": "请仔细辨认并提取出图片里的所有日语文本。不要任何解释说明，直接输出原文。"},
-                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                                ]
-                            }],
-                            temperature=0.1
-                        )
-                        extracted_text = response.choices[0].message.content.strip()
+        hollow_file = st.file_uploader("选择文件", type=["png", "jpg", "jpeg", "webp", "pdf"], key="hollow_uploader", label_visibility="collapsed")
+        
+        if hollow_file is not None:
+            file_bytes = hollow_file.read()
+            filename = hollow_file.name.lower()
+            extracted_text = ""
+            
+            # 避免每次重渲染都重复请求大模型
+            if not st.session_state.hollow_words:
+                with st.spinner("🌲 树洞正在努力解析文件..."):
+                    try:
+                        if filename.endswith(".pdf"):
+                            reader = PdfReader(io.BytesIO(file_bytes))
+                            for page in reader.pages[:5]:
+                                extracted_text += page.extract_text() or ""
+                        else:
+                            # 多模态解析图片中的日语
+                            base64_image = base64.b64encode(file_bytes).decode('utf-8')
+                            response = client_ai.chat.completions.create(
+                                model="glm-4v-flash",
+                                messages=[{
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "text", "text": "请仔细辨认并提取出图片里的所有日语文本。不要任何解释说明，直接输出原文。"},
+                                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                                    ]
+                                }],
+                                temperature=0.1
+                            )
+                            extracted_text = response.choices[0].message.content.strip()
 
-                    if extracted_text.strip():
-                        # 使用大模型提取出核心 N4/N3 词汇
-                        filter_prompt = (
-                            "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
-                            f"目标文本：\n{extracted_text}\n\n"
-                            "请直接返回一个纯JSON格式的字符串数组，例：[\"単語1\", \"単語2\"]"
-                        )
-                        res = client_ai.chat.completions.create(
-                            model="glm-4-flash",
-                            messages=[{"role": "user", "content": filter_prompt}],
-                            temperature=0.2
-                        )
-                        raw_arr = res.choices[0].message.content.strip()
-                        if raw_arr.startswith("```"):
-                            raw_arr = raw_arr.split("\n", 1)[1].rsplit("\n", 1)[0]
-                        st.session_state.hollow_words = json.loads(raw_arr)
-                except Exception as e:
-                    st.error(f"树洞解析出错: {e}")
-                    st.session_state.hollow_words = ["解析失败"]
+                        if extracted_text.strip():
+                            # 分词处理
+                            filter_prompt = (
+                                "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
+                                f"目标文本：\n{extracted_text}\n\n"
+                                "请直接返回一个纯JSON格式的字符串数组，例：[\"単語1\", \"単語2\"]，不要输出任何非 JSON 字符。"
+                            )
+                            res = client_ai.chat.completions.create(
+                                model="glm-4-flash",
+                                messages=[{"role": "user", "content": filter_prompt}],
+                                temperature=0.2
+                            )
+                            raw_arr = res.choices[0].message.content.strip()
+                            if raw_arr.startswith("```"):
+                                raw_arr = raw_arr.split("\n", 1)[1].rsplit("\n", 1)[0]
+                            st.session_state.hollow_words = json.loads(raw_arr)
+                    except Exception as e:
+                        st.error(f"树洞解析出错: {e}")
+                        st.session_state.hollow_words = ["解析失败"]
 
-    # 渲染生词胶囊
-    if st.session_state.hollow_words:
-        st.markdown("<span style='font-size:12px; font-weight:bold; color:var(--primary-color);'>点击下方胶囊可直接填入终端：</span>", unsafe_allow_html=True)
-        cols_pills = st.container()
-        with cols_pills:
-            # 渲染小胶囊
-            for w in st.session_state.hollow_words:
-                if st.button(w, key=f"pill_{w}", help="点击填入下方生词框"):
-                    st.session_state.claimed_word = w
-                    st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+        # 渲染横向排列的单词胶囊
+        if st.session_state.hollow_words:
+            st.markdown("<span style='font-size:12px; font-weight:bold; color:var(--primary-color);'>💡 点击下方胶囊直接填入捕获终端（横向滑动/自适应折行）：</span>", unsafe_allow_html=True)
+            
+            # 建立多列来实现真正的横向排列，每行放 4 个胶囊
+            cols = st.columns(5)
+            for idx, w in enumerate(st.session_state.hollow_words):
+                col_idx = idx % 5
+                with cols[col_idx]:
+                    # 将点击事件与 state 直接强制绑定，确保能直接更新输入框
+                    if st.button(w, key=f"pill_{w}_{idx}", use_container_width=True):
+                        st.session_state["in_word_actual"] = w
+                        st.rerun()
 
-    # 捕获终端
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # 🌲 生词捕获终端
     st.subheader("🌲 生词捕获终端")
 
-    # 如果有被点击选中的胶囊词，优先填入
-    init_word = st.session_state.claimed_word if st.session_state.claimed_word else ""
-    input_word = st.text_input("日语生词 *", value=init_word, key="in_word_actual")
-    
-    # 手动输入台词
+    # 使用 session_state 来绑定 key，完美解决点击胶囊不填入的问题
+    input_word = st.text_input("日语生词 *", key="in_word_actual")
     input_hint = st.text_area("当前情境台词 (选填)", placeholder="贴入当前句子...", key="in_hint")
 
     if st.button("🪄 唤醒 AI 智能解析填表"):
@@ -282,6 +292,7 @@ with left_col:
 
                     st.session_state.input_fields = ai_data
                     st.success("✨ 解析成功！数据已同步至下方的属性面板，请核对。")
+                    st.rerun()
                 except Exception as e:
                     st.error(f"大模型通讯或解析失败: {e}")
 
@@ -324,9 +335,9 @@ with left_col:
             }
             st.session_state.cards.append(new_card)
             save_db(st.session_state.cards)
-            # 归档后清空各种缓存状态
+            # 归档后一并清除各种输入状态缓存
             st.session_state.input_fields = {}
-            st.session_state.claimed_word = ""
+            st.session_state["in_word_actual"] = ""
             st.session_state.hollow_words = []
             st.success(f"生词「{input_word}」已成功归档！")
             st.rerun()
@@ -388,7 +399,7 @@ with right_col:
                             st.rerun()
                 with col_btn2:
                     if st.button("✏️ 载入编辑", key=f"edit_{card_id}_{idx}"):
-                        st.session_state.claimed_word = card["word"]
+                        st.session_state["in_word_actual"] = card["word"]
                         st.session_state.input_fields = {
                             "furigana": card["furigana"],
                             "meaning_zh": card["meaning_zh"],
