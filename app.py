@@ -17,20 +17,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 注入 CSS 样式，美化界面外观
-st.markdown(
-    """
-    <style>
-        .main { background-color: #f4f7f5; }
-        .stButton>button { background-color: #4a7c6c; color: white; border-radius: 8px; border: none; }
-        .stButton>button:hover { background-color: #2d4a43; color: white; }
-        .word-title { font-size: 24px; font-weight: bold; color: #2d4a43; }
-        .meaning-box { background-color: #e9f0ed; padding: 10px; border-radius: 8px; margin: 5px 0; border-left: 5px solid #4a7c6c; }
-        .card-container { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 12px; border: 1px solid #e2e9e6; }
-    </style>
-    """, 
-    unsafe-allow_html=True
-)
+# 彻底修复换行解析 Bug：将参数直接规整传入
+css_style = """
+<style>
+    .main { background-color: #f4f7f5; }
+    .stButton>button { background-color: #4a7c6c; color: white; border-radius: 8px; border: none; }
+    .stButton>button:hover { background-color: #2d4a43; color: white; }
+    .word-title { font-size: 24px; font-weight: bold; color: #2d4a43; }
+    .meaning-box { background-color: #e9f0ed; padding: 10px; border-radius: 8px; margin: 5px 0; border-left: 5px solid #4a7c6c; }
+    .card-container { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 12px; border: 1px solid #e2e9e6; }
+</style>
+"""
+st.markdown(css_style, unsafe_allow_html=True)
 
 # ==========================================
 # 2. 智谱 AI 安全连接（精准绑定你的免费资源包）
@@ -78,7 +76,6 @@ def save_db(data):
 if "cards" not in st.session_state:
     st.session_state.cards = load_db()
 
-# 用于控制当前哪张卡片处于“编辑状态”
 if "editing_card_id" not in st.session_state:
     st.session_state.editing_card_id = None
 
@@ -274,7 +271,7 @@ with col_form:
             st.session_state["ai_response"] = {}
             st.rerun()
 
-# 5.2 右侧：生词卡片库展现与动态内联编辑
+# 5.2 右侧：生词卡片库展现与动态编辑
 with col_cards:
     st.subheader("🗂️ 我的生词卡片库")
     col_t, col_s = st.columns(2)
@@ -295,9 +292,7 @@ with col_cards:
         for card in reversed(filtered_cards):
             card_id = card["id"]
             
-            # 判断当前卡片是否处于编辑状态
             if st.session_state.editing_card_id == card_id:
-                # 渲染内联编辑表单
                 with st.form(key=f"edit_form_{card_id}"):
                     st.markdown(f"### ✏️ 修改生词：{card['word']}")
                     edit_word = st.text_input("单词名称", value=card["word"])
@@ -327,23 +322,24 @@ with col_cards:
                             st.session_state.editing_card_id = None
                             st.rerun()
             else:
-                # 正常渲染卡片视图
                 with st.container():
-                    st.markdown(f"""
+                    # 调用安全包装后的样式注入
+                    card_html = f"""
                     <div class="card-container">
                         <span style="font-size:11px; background:#4a7c6c; color:white; padding:2px 6px; border-radius:4px;">{card['context_source']}</span>
                         <div class="word-title">{card['word']} <span style="font-size:14px; color:#60756c; font-weight:normal;">[{card['furigana']}]</span></div>
                         <div style="font-size:13px; color:#555; margin-top:5px;"><b>例句：</b>{card['example_sentence']}</div>
                     </div>
-                    """, unsafe-allow_html=True)
+                    """
+                    st.markdown(card_html, unsafe_allow_html=True)
                     
                     with st.expander("🔍 翻面查看释义 & 释义详情"):
                         if card.get('meaning_ja'):
                             st.markdown(f"**💡 日解 (思维建立)：**")
-                            st.markdown(f"<div class='meaning-box'>{card['meaning_ja']}</div>", unsafe-allow_html=True)
+                            ja_html = f"<div class='meaning-box'>{card['meaning_ja']}</div>"
+                            st.markdown(ja_html, unsafe_allow_html=True)
                         st.markdown(f"🇨🇳 中文释义：")
                     
-                    # 卡片底部操作行
                     btn_col1, btn_col2, btn_col3, _ = st.columns([1, 1, 1, 3])
                     with btn_col1:
                         if card["status"] == "learning":
@@ -366,4 +362,4 @@ with col_cards:
                             save_db(st.session_state.cards)
                             st.rerun()
                     
-                    st.markdown("<hr style='margin:10px 0; border:0; border-top:1px dashed #ccc;'/>", unsafe-allow_html=True)
+                    st.markdown("<hr style='margin:10px 0; border:0; border-top:1px dashed #ccc;'/>", unsafe_allow_html=True)
