@@ -39,7 +39,7 @@ st.markdown("""
         border-radius: 12px !important;
         padding: 18px !important;
     }
-    /* 强行让生词胶囊横向排列，不占用垂直空间 */
+    /* 强行让生词胶囊横向排列 */
     div[data-testid="stHorizontalBlock"] .word-pill-container,
     .pill-wrapper {
         display: flex;
@@ -113,15 +113,27 @@ def save_db(data):
     except Exception as e:
         st.error(f"本地保存数据库失败: {e}")
 
-# 初始化 Session State
+# --- 初始化所有的 Session State (增设了表单字段的直接绑定键) ---
 if "cards" not in st.session_state:
     st.session_state.cards = load_db()
-if "input_fields" not in st.session_state:
-    st.session_state.input_fields = {}
 if "hollow_words" not in st.session_state:
     st.session_state.hollow_words = []
 if "in_word_actual" not in st.session_state:
     st.session_state["in_word_actual"] = ""
+
+# 核心：确保表单绑定的每一个 key 都在 State 里安全初始化
+form_keys = {
+    "val_furi": "",
+    "val_zh": "",
+    "val_ja": "",
+    "val_source": "通用",
+    "val_tags": "日常",
+    "val_sentence": ""
+}
+for k, default_val in form_keys.items():
+    if k not in st.session_state:
+        st.session_state[k] = default_val
+
 
 # ==========================================
 # 4. Streamlit 页面头部与导入导出
@@ -180,7 +192,7 @@ left_col, right_col = st.columns([1, 1])
 # --- 左栏：输入与 AI 生成端 ---
 with left_col:
     
-    # 🌲 森林树洞部分（原生容器 border 配合自定义 CSS）
+    # 🌲 森林树洞部分
     with st.container(border=True):
         st.markdown("<span style='color:#846226; font-weight:bold; font-size:15px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
         st.markdown("<span style='color:#a49070; font-size:12px; display:block; margin-bottom:10px;'>上传日剧截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
@@ -287,8 +299,14 @@ with left_col:
                         raw_text = raw_text.split("\n", 1)[1].rsplit("\n", 1)[0]
                     ai_data = json.loads(raw_text)
 
-                    # 数据存入状态，省去 rerun()，避免触发 Streamlit 加载卡死
-                    st.session_state.input_fields = ai_data
+                    # 核心修复点：将大模型拿到的解析数据，直接打入绑定的 session_state 对应的 key 里！
+                    st.session_state["val_furi"] = ai_data.get("furigana", "")
+                    st.session_state["val_zh"] = ai_data.get("meaning_zh", "")
+                    st.session_state["val_ja"] = ai_data.get("meaning_ja", "")
+                    st.session_state["val_source"] = ai_data.get("context_source", "通用")
+                    st.session_state["val_tags"] = ai_data.get("tags", "日常")
+                    st.session_state["val_sentence"] = ai_data.get("example_sentence", "")
+
                     st.success("✨ 解析成功！数据已同步至下方的属性面板，请核对。")
                 except Exception as e:
                     st.error(f"大模型通讯或解析失败: {e}")
@@ -296,24 +314,23 @@ with left_col:
     # 属性校对面板
     st.markdown("---")
     st.markdown("📋 **属性校对面板**")
-
-    cached = st.session_state.input_fields
     
+    # 彻底移除了 value 属性，直接双向绑定 state 里的键
     col_f, col_z = st.columns(2)
     with col_f:
-        furi_val = st.text_input("假名发音", value=cached.get("furigana", ""), key="val_furi")
+        furi_val = st.text_input("假名发音", key="val_furi")
     with col_z:
-        zh_val = st.text_input("中文释义", value=cached.get("meaning_zh", ""), key="val_zh")
+        zh_val = st.text_input("中文释义", key="val_zh")
 
-    ja_val = st.text_area("简易日解 (独立思维模式)", value=cached.get("meaning_ja", ""), key="val_ja")
+    ja_val = st.text_area("简易日解 (独立思维模式)", key="val_ja")
     
     col_s, col_t = st.columns(2)
     with col_s:
-        source_val = st.text_input("情境出处", value=cached.get("context_source", "通用"), key="val_source")
+        source_val = st.text_input("情境出处", key="val_source")
     with col_t:
-        tags_val = st.text_input("标签分组", value=cached.get("tags", "日常"), key="val_tags")
+        tags_val = st.text_input("标签分组", key="val_tags")
 
-    sentence_val = st.text_area("高频情境例句", value=cached.get("example_sentence", ""), key="val_sentence")
+    sentence_val = st.text_area("高频情境例句", key="val_sentence")
 
     if st.button("🌱 确认归档入库", use_container_width=True):
         if not input_word.strip() or not zh_val.strip() or not furi_val.strip():
@@ -333,10 +350,16 @@ with left_col:
             st.session_state.cards.append(new_card)
             save_db(st.session_state.cards)
             
-            # 归档后一并清除各种状态，还原面板
-            st.session_state.input_fields = {}
+            # 归档后一并清空输入状态，还原面板
+            st.session_state["val_furi"] = ""
+            st.session_state["val_zh"] = ""
+            st.session_state["val_ja"] = ""
+            st.session_state["val_source"] = "通用"
+            st.session_state["val_tags"] = "日常"
+            st.session_state["val_sentence"] = ""
             st.session_state["in_word_actual"] = ""
             st.session_state.hollow_words = []
+            
             st.success(f"生词「{input_word}」已成功归档！")
             st.rerun()
 
@@ -398,14 +421,15 @@ with right_col:
                 with col_btn2:
                     if st.button("✏️ 载入编辑", key=f"edit_{card_id}_{idx}"):
                         st.session_state["in_word_actual"] = card["word"]
-                        st.session_state.input_fields = {
-                            "furigana": card["furigana"],
-                            "meaning_zh": card["meaning_zh"],
-                            "meaning_ja": card["meaning_ja"],
-                            "context_source": card["context_source"],
-                            "example_sentence": card["example_sentence"],
-                            "tags": card["tags"]
-                        }
+                        
+                        # 同步到表单对应 state 键，使载入编辑也完全正常
+                        st.session_state["val_furi"] = card["furigana"]
+                        st.session_state["val_zh"] = card["meaning_zh"]
+                        st.session_state["val_ja"] = card["meaning_ja"]
+                        st.session_state["val_source"] = card["context_source"]
+                        st.session_state["val_tags"] = card["tags"]
+                        st.session_state["val_sentence"] = card["example_sentence"]
+                        
                         st.success("已载入左侧！请直接在左侧修改后，重新点击“确认归档入库”。")
                         st.rerun()
                 with col_btn3:
