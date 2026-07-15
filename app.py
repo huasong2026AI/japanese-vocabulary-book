@@ -18,16 +18,20 @@ st.set_page_config(
 )
 
 # 注入 CSS 样式，保留森林绿的清新风格
-st.markdown("""
-<style>
-    .main { background-color: #f4f7f5; }
-    .stButton>button { background-color: #4a7c6c; color: white; border-radius: 8px; border: none; }
-    .stButton>button:hover { background-color: #2d4a43; color: white; }
-    .word-title { font-size: 24px; font-weight: bold; color: #2d4a43; }
-    .meaning-box { background-color: #e9f0ed; padding: 10px; border-radius: 8px; margin: 5px 0; border-left: 5px solid #4a7c6c; }
-    .card-container { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 12px; border: 1px solid #e2e9e6; }
-</style>
-""", unsafe-allow_index=True)
+# 注入 CSS 样式，美化 Streamlit 默认的外观，保留森林绿的清新风格
+st.markdown(
+    """
+    <style>
+        .main { background-color: #f4f7f5; }
+        .stButton>button { background-color: #4a7c6c; color: white; border-radius: 8px; border: none; }
+        .stButton>button:hover { background-color: #2d4a43; color: white; }
+        .word-title { font-size: 24px; font-weight: bold; color: #2d4a43; }
+        .meaning-box { background-color: #e9f0ed; padding: 10px; border-radius: 8px; margin: 5px 0; border-left: 5px solid #4a7c6c; }
+        .card-container { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 12px; border: 1px solid #e2e9e6; }
+    </style>
+    """, 
+    unsafe-allow_index=True
+)
 
 # ==========================================
 # 2. 智谱 AI 安全连接（精准绑定你的免费资源包）
