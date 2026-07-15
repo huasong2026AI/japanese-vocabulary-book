@@ -1,8 +1,11 @@
 import streamlit as st
 import json
 import os
+import io
+import base64
 import pandas as pd
 from zhipuai import ZhipuAI
+from pypdf import PdfReader
 
 # ==========================================
 # 1. 页面基本配置与森林绿风格微调
@@ -14,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 注入森林绿主题的轻量样式（这里已经将参数修正为官方标准的 unsafe_allow_html=True）
+# 注入森林绿主题样式（增加了森林树洞虚线框和胶囊按钮的样式）
 st.markdown("""
     <style>
     :root {
@@ -29,21 +32,30 @@ st.markdown("""
         background-color: #2d4a43 !important;
         color: white !important;
     }
-    /* 正在复习与已斩杀的卡片背景微调 */
-    .word-card {
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #4a7c6c;
-        background-color: #f4f7f5;
-        margin-bottom: 10px;
+    /* 森林树洞虚线卡片 */
+    .tree-hollow-box {
+        background-color: #fdfaf4;
+        border: 2px dashed #8ba89e;
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 20px;
     }
-    .mastered-card {
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #8ba89e;
-        background-color: #fcfdfc;
-        margin-bottom: 10px;
-        opacity: 0.8;
+    /* 生词胶囊样式 */
+    div.stButton > button.word-pill-btn {
+        background-color: #ebdcb9 !important;
+        color: #5a4525 !important;
+        border: none !important;
+        padding: 4px 10px !important;
+        border-radius: 14px !important;
+        font-size: 12px !important;
+        margin: 4px !important;
+        font-weight: bold !important;
+        display: inline-block !important;
+        width: auto !important;
+    }
+    div.stButton > button.word-pill-btn:hover {
+        background-color: #4a7c6c !important;
+        color: white !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -52,7 +64,6 @@ st.markdown("""
 # 2. 安全读取 Streamlit Secrets (不泄露 Key)
 # ==========================================
 try:
-    # 严格按照 Streamlit 标准，从 secrets 密实中加载
     ZHIPU_API_KEY = st.secrets["ZHIPU_API_KEY"]
     client_ai = ZhipuAI(api_key=ZHIPU_API_KEY)
 except Exception as e:
@@ -98,10 +109,12 @@ def save_db(data):
 # 初始化 Session State
 if "cards" not in st.session_state:
     st.session_state.cards = load_db()
-if "edit_card_id" not in st.session_state:
-    st.session_state.edit_card_id = None
 if "input_fields" not in st.session_state:
     st.session_state.input_fields = {}
+if "hollow_words" not in st.session_state:
+    st.session_state.hollow_words = []
+if "claimed_word" not in st.session_state:
+    st.session_state.claimed_word = ""
 
 # ==========================================
 # 4. Streamlit 页面头部与导入导出
@@ -114,7 +127,6 @@ with col_header_right:
     # 导出 CSV 备份
     if st.session_state.cards:
         df = pd.DataFrame(st.session_state.cards)
-        # 汉化一下导出格式便于阅读
         df_export = df.copy()
         df_export["status"] = df_export["status"].apply(lambda x: "已掌握" if x == "mastered" else "正在复习")
         csv_data = df_export.to_csv(index=False, encoding="utf-8-sig")
@@ -160,10 +172,82 @@ left_col, right_col = st.columns([1, 1])
 
 # --- 左栏：输入与 AI 生成端 ---
 with left_col:
+    # 🌲 森林树洞部分（完美移植虚线框效果）
+    st.markdown('<div class="tree-hollow-box">', unsafe_allow_html=True)
+    st.markdown("<span style='color:#846226; font-weight:bold; font-size:14px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
+    st.markdown("<span style='color:#a49070; font-size:12px; display:block; margin-bottom:8px;'>上传日剧截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
+    
+    hollow_file = st.file_uploader("选择文件", type=["png", "jpg", "jpeg", "webp", "pdf"], key="hollow_uploader", label_visibility="collapsed")
+    
+    if hollow_file is not None:
+        file_bytes = hollow_file.read()
+        filename = hollow_file.name.lower()
+        extracted_text = ""
+        
+        # 避免每次重渲染都重新请求 AI，仅在数据为空时解析
+        if not st.session_state.hollow_words:
+            with st.spinner("🌲 树洞正在努力解析文件..."):
+                try:
+                    if filename.endswith(".pdf"):
+                        reader = PdfReader(io.BytesIO(file_bytes))
+                        for page in reader.pages[:5]:
+                            extracted_text += page.extract_text() or ""
+                    else:
+                        # 使用多模态大模型 glm-4v-flash 解析图片
+                        base64_image = base64.b64encode(file_bytes).decode('utf-8')
+                        response = client_ai.chat.completions.create(
+                            model="glm-4v-flash",
+                            messages=[{
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": "请仔细辨认并提取出图片里的所有日语文本。不要任何解释说明，直接输出原文。"},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                                ]
+                            }],
+                            temperature=0.1
+                        )
+                        extracted_text = response.choices[0].message.content.strip()
+
+                    if extracted_text.strip():
+                        # 使用大模型提取出核心 N4/N3 词汇
+                        filter_prompt = (
+                            "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
+                            f"目标文本：\n{extracted_text}\n\n"
+                            "请直接返回一个纯JSON格式的字符串数组，例：[\"単語1\", \"単語2\"]"
+                        )
+                        res = client_ai.chat.completions.create(
+                            model="glm-4-flash",
+                            messages=[{"role": "user", "content": filter_prompt}],
+                            temperature=0.2
+                        )
+                        raw_arr = res.choices[0].message.content.strip()
+                        if raw_arr.startswith("```"):
+                            raw_arr = raw_arr.split("\n", 1)[1].rsplit("\n", 1)[0]
+                        st.session_state.hollow_words = json.loads(raw_arr)
+                except Exception as e:
+                    st.error(f"树洞解析出错: {e}")
+                    st.session_state.hollow_words = ["解析失败"]
+
+    # 渲染生词胶囊
+    if st.session_state.hollow_words:
+        st.markdown("<span style='font-size:12px; font-weight:bold; color:var(--primary-color);'>点击下方胶囊可直接填入终端：</span>", unsafe_allow_html=True)
+        cols_pills = st.container()
+        with cols_pills:
+            # 渲染小胶囊
+            for w in st.session_state.hollow_words:
+                if st.button(w, key=f"pill_{w}", help="点击填入下方生词框"):
+                    st.session_state.claimed_word = w
+                    st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 捕获终端
     st.subheader("🌲 生词捕获终端")
 
-    # 手动输入或从图片/PDF提取
-    input_word = st.text_input("日语生词 *", key="in_word")
+    # 如果有被点击选中的胶囊词，优先填入
+    init_word = st.session_state.claimed_word if st.session_state.claimed_word else ""
+    input_word = st.text_input("日语生词 *", value=init_word, key="in_word_actual")
+    
+    # 手动输入台词
     input_hint = st.text_area("当前情境台词 (选填)", placeholder="贴入当前句子...", key="in_hint")
 
     if st.button("🪄 唤醒 AI 智能解析填表"):
@@ -196,7 +280,6 @@ with left_col:
                         raw_text = raw_text.split("\n", 1)[1].rsplit("\n", 1)[0]
                     ai_data = json.loads(raw_text)
 
-                    # 将解析结果塞入临时缓存中
                     st.session_state.input_fields = ai_data
                     st.success("✨ 解析成功！数据已同步至下方的属性面板，请核对。")
                 except Exception as e:
@@ -206,30 +289,28 @@ with left_col:
     st.markdown("---")
     st.markdown("📋 **属性校对面板**")
 
-    # 根据是否有 AI 缓存或是否在编辑模式进行初始化填充
     cached = st.session_state.input_fields
     
     col_f, col_z = st.columns(2)
     with col_f:
-        furi_val = st.text_input("假名发音", value=cached.get("furigana", ""))
+        furi_val = st.text_input("假名发音", value=cached.get("furigana", ""), key="val_furi")
     with col_z:
-        zh_val = st.text_input("中文释义", value=cached.get("meaning_zh", ""))
+        zh_val = st.text_input("中文释义", value=cached.get("meaning_zh", ""), key="val_zh")
 
-    ja_val = st.text_area("简易日解 (独立思维模式)", value=cached.get("meaning_ja", ""))
+    ja_val = st.text_area("简易日解 (独立思维模式)", value=cached.get("meaning_ja", ""), key="val_ja")
     
     col_s, col_t = st.columns(2)
     with col_s:
-        source_val = st.text_input("情境出处", value=cached.get("context_source", "通用"))
+        source_val = st.text_input("情境出处", value=cached.get("context_source", "通用"), key="val_source")
     with col_t:
-        tags_val = st.text_input("标签分组", value=cached.get("tags", "日常"))
+        tags_val = st.text_input("标签分组", value=cached.get("tags", "日常"), key="val_tags")
 
-    sentence_val = st.text_area("高频情境例句", value=cached.get("example_sentence", ""))
+    sentence_val = st.text_area("高频情境例句", value=cached.get("example_sentence", ""), key="val_sentence")
 
     if st.button("🌱 确认归档入库", use_container_width=True):
         if not input_word.strip() or not zh_val.strip() or not furi_val.strip():
             st.error("生词、假名与中文释义不能为空！")
         else:
-            # 存入列表
             new_card = {
                 "id": max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1,
                 "word": input_word.strip(),
@@ -243,7 +324,10 @@ with left_col:
             }
             st.session_state.cards.append(new_card)
             save_db(st.session_state.cards)
-            st.session_state.input_fields = {} # 清空缓存
+            # 归档后清空各种缓存状态
+            st.session_state.input_fields = {}
+            st.session_state.claimed_word = ""
+            st.session_state.hollow_words = []
             st.success(f"生词「{input_word}」已成功归档！")
             st.rerun()
 
@@ -267,7 +351,7 @@ with right_col:
         filtered_cards = [c for c in filtered_cards if selected_tag in c.get("tags", "")]
     filtered_cards = [c for c in filtered_cards if c.get("status", "learning") == status_key]
 
-    # 按倒序展示（最新添加的在最上面）
+    # 按倒序展示
     filtered_cards = filtered_cards[::-1]
 
     if not filtered_cards:
@@ -276,10 +360,8 @@ with right_col:
         for idx, card in enumerate(filtered_cards):
             card_id = card["id"]
             
-            # 使用原生 Expander 极简折叠，收起时看生词，点开即相当于“翻面”
             card_label = f"🏷️ {card['context_source']} | {card['word']} 【{card['furigana']}】"
             
-            # 渲染卡片卡身
             with st.expander(card_label, expanded=False):
                 st.markdown(f"**中文含义**：<span style='color:#c96868; font-weight:bold;'>{card['meaning_zh']}</span>", unsafe_allow_html=True)
                 if card.get("meaning_ja"):
@@ -290,7 +372,6 @@ with right_col:
                 # 操作按键
                 col_btn1, col_btn2, col_btn3 = st.columns([2, 2, 1])
                 with col_btn1:
-                    # 修改状态为已掌握 / 重新复习
                     if card["status"] == "learning":
                         if st.button("🌱 斩杀 (掌握)", key=f"mast_{card_id}_{idx}"):
                             for c in st.session_state.cards:
@@ -306,8 +387,8 @@ with right_col:
                             save_db(st.session_state.cards)
                             st.rerun()
                 with col_btn2:
-                    # 载入左侧进行编辑
                     if st.button("✏️ 载入编辑", key=f"edit_{card_id}_{idx}"):
+                        st.session_state.claimed_word = card["word"]
                         st.session_state.input_fields = {
                             "furigana": card["furigana"],
                             "meaning_zh": card["meaning_zh"],
@@ -317,8 +398,8 @@ with right_col:
                             "tags": card["tags"]
                         }
                         st.success("已载入左侧！请直接在左侧修改后，重新点击“确认归档入库”。")
+                        st.rerun()
                 with col_btn3:
-                    # 删除卡片
                     if st.button("🗑️", key=f"del_{card_id}_{idx}"):
                         st.session_state.cards = [c for c in st.session_state.cards if c["id"] != card_id]
                         save_db(st.session_state.cards)
