@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 注入森林绿主题样式（修复虚线框跑偏和胶囊横向排版）
+# 注入森林绿主题样式
 st.markdown("""
     <style>
     :root {
@@ -120,7 +120,6 @@ if "input_fields" not in st.session_state:
     st.session_state.input_fields = {}
 if "hollow_words" not in st.session_state:
     st.session_state.hollow_words = []
-# 初始化生词输入框的状态值
 if "in_word_actual" not in st.session_state:
     st.session_state["in_word_actual"] = ""
 
@@ -181,7 +180,7 @@ left_col, right_col = st.columns([1, 1])
 # --- 左栏：输入与 AI 生成端 ---
 with left_col:
     
-    # 🌲 森林树洞部分（使用原生容器 border+自定义 CSS，彻底解决虚线框跑偏）
+    # 🌲 森林树洞部分（原生容器 border 配合自定义 CSS）
     with st.container(border=True):
         st.markdown("<span style='color:#846226; font-weight:bold; font-size:15px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
         st.markdown("<span style='color:#a49070; font-size:12px; display:block; margin-bottom:10px;'>上传日剧截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
@@ -193,7 +192,6 @@ with left_col:
             filename = hollow_file.name.lower()
             extracted_text = ""
             
-            # 避免每次重渲染都重复请求大模型
             if not st.session_state.hollow_words:
                 with st.spinner("🌲 树洞正在努力解析文件..."):
                     try:
@@ -202,7 +200,7 @@ with left_col:
                             for page in reader.pages[:5]:
                                 extracted_text += page.extract_text() or ""
                         else:
-                            # 多模态解析图片中的日语
+                            # 多模态解析图片
                             base64_image = base64.b64encode(file_bytes).decode('utf-8')
                             response = client_ai.chat.completions.create(
                                 model="glm-4v-flash",
@@ -218,7 +216,7 @@ with left_col:
                             extracted_text = response.choices[0].message.content.strip()
 
                         if extracted_text.strip():
-                            # 分词处理
+                            # 分词
                             filter_prompt = (
                                 "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
                                 f"目标文本：\n{extracted_text}\n\n"
@@ -239,14 +237,13 @@ with left_col:
 
         # 渲染横向排列的单词胶囊
         if st.session_state.hollow_words:
-            st.markdown("<span style='font-size:12px; font-weight:bold; color:var(--primary-color);'>💡 点击下方胶囊直接填入捕获终端（横向滑动/自适应折行）：</span>", unsafe_allow_html=True)
+            st.markdown("<span style='font-size:12px; font-weight:bold; color:var(--primary-color);'>💡 点击下方胶囊直接填入捕获终端：</span>", unsafe_allow_html=True)
             
-            # 建立多列来实现真正的横向排列，每行放 4 个胶囊
+            # 使用 5 列横向平铺胶囊
             cols = st.columns(5)
             for idx, w in enumerate(st.session_state.hollow_words):
                 col_idx = idx % 5
                 with cols[col_idx]:
-                    # 将点击事件与 state 直接强制绑定，确保能直接更新输入框
                     if st.button(w, key=f"pill_{w}_{idx}", use_container_width=True):
                         st.session_state["in_word_actual"] = w
                         st.rerun()
@@ -256,7 +253,7 @@ with left_col:
     # 🌲 生词捕获终端
     st.subheader("🌲 生词捕获终端")
 
-    # 使用 session_state 来绑定 key，完美解决点击胶囊不填入的问题
+    # 双向绑定生词
     input_word = st.text_input("日语生词 *", key="in_word_actual")
     input_hint = st.text_area("当前情境台词 (选填)", placeholder="贴入当前句子...", key="in_hint")
 
@@ -290,9 +287,9 @@ with left_col:
                         raw_text = raw_text.split("\n", 1)[1].rsplit("\n", 1)[0]
                     ai_data = json.loads(raw_text)
 
+                    # 数据存入状态，省去 rerun()，避免触发 Streamlit 加载卡死
                     st.session_state.input_fields = ai_data
                     st.success("✨ 解析成功！数据已同步至下方的属性面板，请核对。")
-                    st.rerun()
                 except Exception as e:
                     st.error(f"大模型通讯或解析失败: {e}")
 
@@ -335,7 +332,8 @@ with left_col:
             }
             st.session_state.cards.append(new_card)
             save_db(st.session_state.cards)
-            # 归档后一并清除各种输入状态缓存
+            
+            # 归档后一并清除各种状态，还原面板
             st.session_state.input_fields = {}
             st.session_state["in_word_actual"] = ""
             st.session_state.hollow_words = []
