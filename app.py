@@ -50,7 +50,7 @@ else:
     client_ai = None
 
 # ==========================================
-# 3. 数据持久化
+# 3. 数据持久化与状态初始化
 # ==========================================
 DB_FILE = "cards_db.json"
 DEFAULT_CARDS = [
@@ -77,6 +77,10 @@ def save_db(data):
 
 if "cards" not in st.session_state:
     st.session_state.cards = load_db()
+
+# 用于控制当前哪张卡片处于“编辑状态”
+if "editing_card_id" not in st.session_state:
+    st.session_state.editing_card_id = None
 
 # ==========================================
 # 4. 侧边栏功能区
@@ -205,6 +209,7 @@ if "input_word" not in st.session_state:
 if "ai_response" not in st.session_state:
     st.session_state["ai_response"] = {}
 
+# 5.1 左侧：录入终端
 with col_form:
     st.subheader("🌲 生词捕获终端")
     in_word = st.text_input("日语生词 *", value=st.session_state["input_word"])
@@ -269,6 +274,7 @@ with col_form:
             st.session_state["ai_response"] = {}
             st.rerun()
 
+# 5.2 右侧：生词卡片库展现与动态内联编辑
 with col_cards:
     st.subheader("🗂️ 我的生词卡片库")
     col_t, col_s = st.columns(2)
@@ -288,37 +294,76 @@ with col_cards:
     else:
         for card in reversed(filtered_cards):
             card_id = card["id"]
-            with st.container():
-                st.markdown(f"""
-                <div class="card-container">
-                    <span style="font-size:11px; background:#4a7c6c; color:white; padding:2px 6px; border-radius:4px;">{card['context_source']}</span>
-                    <div class="word-title">{card['word']} <span style="font-size:14px; color:#60756c; font-weight:normal;">[{card['furigana']}]</span></div>
-                    <div style="font-size:13px; color:#555; margin-top:5px;"><b>例句：</b>{card['example_sentence']}</div>
-                </div>
-                """, unsafe-allow_html=True)
-                
-                with st.expander("🔍 翻面查看释义 & 释义详情"):
-                    if card['meaning_ja']:
-                        st.markdown(f"**💡 日解 (思维建立)：**")
-                        st.markdown(f"<div class='meaning-box'>{card['meaning_ja']}</div>", unsafe-allow_html=True)
-                    st.markdown(f"🇨🇳 中文释义：")
-                
-                btn_col1, btn_col2, _ = st.columns([1, 1, 4])
-                with btn_col1:
-                    if card["status"] == "learning":
-                        if st.button("🏆 斩杀", key=f"master_{card_id}"):
-                            card["status"] = "mastered"
+            
+            # 判断当前卡片是否处于编辑状态
+            if st.session_state.editing_card_id == card_id:
+                # 渲染内联编辑表单
+                with st.form(key=f"edit_form_{card_id}"):
+                    st.markdown(f"### ✏️ 修改生词：{card['word']}")
+                    edit_word = st.text_input("单词名称", value=card["word"])
+                    edit_furi = st.text_input("假名发音", value=card["furigana"])
+                    edit_zh = st.text_input("中文释义", value=card["meaning_zh"])
+                    edit_ja = st.text_area("日文释义", value=card.get("meaning_ja", ""))
+                    edit_source = st.text_input("情境出处", value=card["context_source"])
+                    edit_sentence = st.text_area("高频例句", value=card["example_sentence"])
+                    edit_tag = st.selectbox("标签", ["日常", "日剧"], index=0 if card["tags"] == "日常" else 1)
+                    
+                    form_col1, form_col2 = st.columns(2)
+                    with form_col1:
+                        if st.form_submit_button("💾 保存修改"):
+                            card["word"] = edit_word
+                            card["furigana"] = edit_furi
+                            card["meaning_zh"] = edit_zh
+                            card["meaning_ja"] = edit_ja
+                            card["context_source"] = edit_source
+                            card["example_sentence"] = edit_sentence
+                            card["tags"] = edit_tag
+                            save_db(st.session_state.cards)
+                            st.session_state.editing_card_id = None
+                            st.success("修改已保存！")
+                            st.rerun()
+                    with form_col2:
+                        if st.form_submit_button("❌ 取消"):
+                            st.session_state.editing_card_id = None
+                            st.rerun()
+            else:
+                # 正常渲染卡片视图
+                with st.container():
+                    st.markdown(f"""
+                    <div class="card-container">
+                        <span style="font-size:11px; background:#4a7c6c; color:white; padding:2px 6px; border-radius:4px;">{card['context_source']}</span>
+                        <div class="word-title">{card['word']} <span style="font-size:14px; color:#60756c; font-weight:normal;">[{card['furigana']}]</span></div>
+                        <div style="font-size:13px; color:#555; margin-top:5px;"><b>例句：</b>{card['example_sentence']}</div>
+                    </div>
+                    """, unsafe-allow_html=True)
+                    
+                    with st.expander("🔍 翻面查看释义 & 释义详情"):
+                        if card.get('meaning_ja'):
+                            st.markdown(f"**💡 日解 (思维建立)：**")
+                            st.markdown(f"<div class='meaning-box'>{card['meaning_ja']}</div>", unsafe-allow_html=True)
+                        st.markdown(f"🇨🇳 中文释义：")
+                    
+                    # 卡片底部操作行
+                    btn_col1, btn_col2, btn_col3, _ = st.columns([1, 1, 1, 3])
+                    with btn_col1:
+                        if card["status"] == "learning":
+                            if st.button("🏆 斩杀", key=f"master_{card_id}"):
+                                card["status"] = "mastered"
+                                save_db(st.session_state.cards)
+                                st.rerun()
+                        else:
+                            if st.button("🍂 召回", key=f"retrieve_{card_id}"):
+                                card["status"] = "learning"
+                                save_db(st.session_state.cards)
+                                st.rerun()
+                    with btn_col2:
+                        if st.button("✏️ 修改", key=f"edit_trigger_{card_id}"):
+                            st.session_state.editing_card_id = card_id
+                            st.rerun()
+                    with btn_col3:
+                        if st.button("🗑️ 抹除", key=f"del_{card_id}"):
+                            st.session_state.cards = [c for c in st.session_state.cards if c["id"] != card_id]
                             save_db(st.session_state.cards)
                             st.rerun()
-                    else:
-                        if st.button("🍂 召回", key=f"retrieve_{card_id}"):
-                            card["status"] = "learning"
-                            save_db(st.session_state.cards)
-                            st.rerun()
-                with btn_col2:
-                    if st.button("🗑️ 抹除", key=f"del_{card_id}"):
-                        st.session_state.cards = [c for c in st.session_state.cards if c["id"] != card_id]
-                        save_db(st.session_state.cards)
-                        st.rerun()
-                
-                st.markdown("<hr style='margin:10px 0; border:0; border-top:1px dashed #ccc;'/>", unsafe-allow_html=True)
+                    
+                    st.markdown("<hr style='margin:10px 0; border:0; border-top:1px dashed #ccc;'/>", unsafe-allow_html=True)
