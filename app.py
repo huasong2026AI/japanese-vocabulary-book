@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 注入森林绿主题的轻量样式
+# 注入森林绿主题的轻量样式（这里已经将参数修正为官方标准的 unsafe_allow_html=True）
 st.markdown("""
     <style>
     :root {
@@ -46,7 +46,7 @@ st.markdown("""
         opacity: 0.8;
     }
     </style>
-""", unsafe_allow_type=True)
+""", unsafe_allow_html=True)
 
 # ==========================================
 # 2. 安全读取 Streamlit Secrets (不泄露 Key)
@@ -316,8 +316,6 @@ with right_col:
                             "example_sentence": card["example_sentence"],
                             "tags": card["tags"]
                         }
-                        # 由于 Streamlit 没有直接修改已渲染 text_input 值的无摩擦机制，
-                        # 载入属性面板是最快且不会出错的办法。
                         st.success("已载入左侧！请直接在左侧修改后，重新点击“确认归档入库”。")
                 with col_btn3:
                     # 删除卡片
