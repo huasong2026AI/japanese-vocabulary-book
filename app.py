@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 注入全局 CSS：缩小字体、精简排版、美化虚线框
+# 注入全局 CSS：缩小字体、精简排版、美化虚线框、统一按钮样式
 st.markdown("""
     <style>
     /* 全局基础字体调小，视觉更精致 */
@@ -32,17 +32,36 @@ st.markdown("""
     :root {
         --primary-color: #4a7c6c;
     }
-    .stButton>button {
+    
+    /* 统一所有主要按钮（st.button/download_button/popover）的精致森林绿样式 */
+    .stButton>button, .stDownloadButton>button, div[data-testid="stPopover"]>button {
         background-color: #4a7c6c !important;
         color: white !important;
         border-radius: 6px !important;
         font-size: 13px !important;
         padding: 4px 12px !important;
+        border: 1px solid #4a7c6c !important;
+        height: 38px !important;
+        line-height: 24px !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
-    .stButton>button:hover {
+    
+    .stButton>button:hover, .stDownloadButton>button:hover, div[data-testid="stPopover"]>button:hover {
         background-color: #2d4a43 !important;
+        border-color: #2d4a43 !important;
         color: white !important;
     }
+    
+    /* 移除表单的原生粗框，改用干净的布局 */
+    form[data-testid="stForm"] {
+        border: none !important;
+        padding: 0px !important;
+    }
+
     /* 原生 border 容器伪装成漂亮的森林虚线树洞 */
     div[data-testid="stVerticalBlockBorderContainer"] {
         border: 2px dashed #8ba89e !important;
@@ -68,19 +87,14 @@ st.markdown("""
         border-radius: 15px !important;
         font-size: 12px !important;
         font-weight: bold !important;
+        height: auto !important;
+        line-height: 1.2 !important;
         transition: all 0.2s ease;
     }
     div.stButton > button[kind="secondary"]:hover {
         background-color: #4a7c6c !important;
         color: white !important;
         border-color: #4a7c6c !important;
-    }
-    /* 文件上传组件高度微调，方便排在一行 */
-    div[data-testid="stFileUploader"] {
-        padding: 0px !important;
-    }
-    div[data-testid="stFileUploader"] section {
-        padding: 4px 8px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -139,22 +153,10 @@ if "hollow_words" not in st.session_state:
 if "in_word_actual" not in st.session_state:
     st.session_state["in_word_actual"] = ""
 
-# 绑定表单 key 初始化
-form_keys = {
-    "val_furi": "",
-    "val_zh": "",
-    "val_ja": "",
-    "val_tags": "日常",
-    "val_sentence": ""
-}
-for k, default_val in form_keys.items():
-    if k not in st.session_state:
-        st.session_state[k] = default_val
-
 # ==========================================
-# 4. 精美一行式头部：标题、导入与导出并列
+# 4. 一行式头部：标题、导入与导出完美对齐且精致
 # ==========================================
-col_title, col_export, col_import = st.columns([2.5, 1, 1.5], vertical_alignment="bottom")
+col_title, col_export, col_import = st.columns([2.5, 1, 1], vertical_alignment="bottom")
 
 with col_title:
     st.markdown("<h1 style='margin: 0; padding-bottom: 5px;'>🍃 情境生词消灭器</h1>", unsafe_allow_html=True)
@@ -175,38 +177,42 @@ with col_export:
         )
 
 with col_import:
-    # 导入按钮与导出样式对齐
-    uploaded_file = st.file_uploader("📥 导入 CSV 备份", type=["csv"], label_visibility="collapsed")
-    if uploaded_file is not None:
-        try:
-            df_import = pd.read_csv(uploaded_file, encoding="utf-8-sig")
-            imported_cards = []
-            new_id = max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1
-            for _, row in df_import.iterrows():
-                status_raw = row.get("status", "正在复习")
-                status = "mastered" if status_raw == "已掌握" else "learning"
-                # 同时兼容旧版 context_source，如果旧版有该字段，合并到 tags
-                old_source = str(row.get("context_source", "")).strip()
-                new_tags = str(row.get("tags", "日常")).strip()
-                if old_source and old_source != "nan" and old_source != "通用":
-                    new_tags = old_source
+    # 巧妙利用 Popover（气泡窗口）将上传控件隐藏在精致的导入按钮中，样式与导出完全对称一致！
+    with st.popover("📥 导入 CSV 备份", use_container_width=True):
+        st.markdown("<small style='color: gray;'>上传导出的 CSV 备份文件恢复数据：</small>", unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("选择 CSV 文件", type=["csv"], label_visibility="collapsed")
+        if uploaded_file is not None:
+            try:
+                df_import = pd.read_csv(uploaded_file, encoding="utf-8-sig")
+                imported_cards = []
+                new_id = max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1
+                for _, row in df_import.iterrows():
+                    status_raw = row.get("status", "正在复习")
+                    status = "mastered" if status_raw == "已掌握" else "learning"
+                    
+                    # 兼容可能存在的旧版数据字段
+                    old_source = str(row.get("context_source", "")).strip()
+                    new_tags = str(row.get("tags", "日常")).strip()
+                    if old_source and old_source != "nan" and old_source != "通用":
+                        new_tags = old_source
 
-                imported_cards.append({
-                    "id": new_id,
-                    "word": str(row.get("word", "")).strip(),
-                    "furigana": str(row.get("furigana", "")).strip(),
-                    "meaning_ja": str(row.get("meaning_ja", "")).strip(),
-                    "meaning_zh": str(row.get("meaning_zh", "")).strip(),
-                    "example_sentence": str(row.get("example_sentence", "")).strip(),
-                    "tags": new_tags,
-                    "status": status
-                })
-                new_id += 1
-            st.session_state.cards.extend(imported_cards)
-            save_db(st.session_state.cards)
-            st.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
-        except Exception as e:
-            st.error(f"导入解析失败：{e}")
+                    imported_cards.append({
+                        "id": new_id,
+                        "word": str(row.get("word", "")).strip(),
+                        "furigana": str(row.get("furigana", "")).strip(),
+                        "meaning_ja": str(row.get("meaning_ja", "")).strip(),
+                        "meaning_zh": str(row.get("meaning_zh", "")).strip(),
+                        "example_sentence": str(row.get("example_sentence", "")).strip(),
+                        "tags": new_tags,
+                        "status": status
+                    })
+                    new_id += 1
+                st.session_state.cards.extend(imported_cards)
+                save_db(st.session_state.cards)
+                st.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
+                st.rerun()
+            except Exception as e:
+                st.error(f"导入解析失败：{e}")
 
 st.markdown("<hr style='margin: 8px 0;'>", unsafe_allow_html=True)
 
@@ -291,7 +297,7 @@ with left_col:
     # 🌲 生词捕获终端
     st.subheader("🌲 生词捕获终端")
 
-    # 双向绑定生词
+    # 双向绑定生词（在表单外侧，支持胶囊一键载入和AI自动更新）
     input_word = st.text_input("日语生词 *", key="in_word_actual")
     input_hint = st.text_area("当前情境台词 (选填)", placeholder="贴入当前句子...", key="in_hint")
 
@@ -324,7 +330,7 @@ with left_col:
                         raw_text = raw_text.split("\n", 1)[1].rsplit("\n", 1)[0]
                     ai_data = json.loads(raw_text)
 
-                    # 强刷 state 状态值，安全完美同步
+                    # 安全设置值
                     st.session_state["val_furi"] = ai_data.get("furigana", "")
                     st.session_state["val_zh"] = ai_data.get("meaning_zh", "")
                     st.session_state["val_ja"] = ai_data.get("meaning_ja", "")
@@ -335,52 +341,50 @@ with left_col:
                 except Exception as e:
                     st.error(f"大模型通讯或解析失败: {e}")
 
-    # 属性校对面板
     st.markdown("---")
     st.markdown("📋 **属性校对面板**")
     
-    # 采用安全直接绑定的 key
-    col_f, col_z = st.columns(2)
-    with col_f:
-        furi_val = st.text_input("假名发音", key="val_furi")
-    with col_z:
-        zh_val = st.text_input("中文释义", key="val_zh")
+    # ==========================================
+    # 【核心安全修复】：使用 st.form 彻底避开 Session State 写入锁限制！
+    # ==========================================
+    with st.form("edit_and_submit_form", clear_on_submit=True):
+        
+        col_f, col_z = st.columns(2)
+        with col_f:
+            furi_val = st.text_input("假名发音", key="val_furi")
+        with col_z:
+            zh_val = st.text_input("中文释义", key="val_zh")
 
-    ja_val = st.text_area("简易日解 (独立思维模式)", key="val_ja")
-    
-    # 情境标签保留唯一
-    tags_val = st.text_input("情境标签", key="val_tags")
+        ja_val = st.text_area("简易日解 (独立思维模式)", key="val_ja")
+        tags_val = st.text_input("情境标签", key="val_tags")
+        sentence_val = st.text_area("高频情境例句", key="val_sentence")
 
-    sentence_val = st.text_area("高频情境例句", key="val_sentence")
-
-    # 【核心安全修复】：规避 Streamlit 在渲染后手动清空 key 的报错
-    if st.button("🌱 确认归档入库", use_container_width=True):
-        if not input_word.strip() or not zh_val.strip() or not furi_val.strip():
-            st.error("生词、假名与中文释义不能为空！")
-        else:
-            new_card = {
-                "id": max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1,
-                "word": input_word.strip(),
-                "furigana": furi_val.strip(),
-                "meaning_ja": ja_val.strip(),
-                "meaning_zh": zh_val.strip(),
-                "example_sentence": sentence_val.strip(),
-                "tags": tags_val.strip() if tags_val.strip() else "日常",
-                "status": "learning"
-            }
-            st.session_state.cards.append(new_card)
-            save_db(st.session_state.cards)
-            
-            # 安全归档：不直接写 st.session_state["val_furi"] = ""，而是采用 st.rerun 前清除，或由 Streamlit 统一刷新
-            # 这是一个标准的重置方法，不会触发任何 API 违规报错！
-            for key in ["val_furi", "val_zh", "val_ja", "val_tags", "val_sentence"]:
-                st.session_state[key] = ""
-            st.session_state["val_tags"] = "日常"
-            st.session_state["in_word_actual"] = ""
-            st.session_state.hollow_words = []
-            
-            st.success(f"生词「{input_word}」已成功归档！")
-            st.rerun()
+        # 表单提交按钮
+        submit_btn = st.form_submit_button("🌱 确认归档入库", use_container_width=True)
+        
+        if submit_btn:
+            if not input_word.strip() or not zh_val.strip() or not furi_val.strip():
+                st.error("生词、假名与中文释义不能为空！")
+            else:
+                new_card = {
+                    "id": max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1,
+                    "word": input_word.strip(),
+                    "furigana": furi_val.strip(),
+                    "meaning_ja": ja_val.strip(),
+                    "meaning_zh": zh_val.strip(),
+                    "example_sentence": sentence_val.strip(),
+                    "tags": tags_val.strip() if tags_val.strip() else "日常",
+                    "status": "learning"
+                }
+                st.session_state.cards.append(new_card)
+                save_db(st.session_state.cards)
+                
+                # 清除输入框外的状态
+                st.session_state["in_word_actual"] = ""
+                st.session_state.hollow_words = []
+                
+                st.success(f"生词「{input_word}」已成功归档！")
+                st.rerun()
 
 # --- 右栏：原生折叠卡片列表与过滤 ---
 with right_col:
@@ -390,7 +394,6 @@ with right_col:
     col_filter_t, col_filter_s = st.columns(2)
     with col_filter_t:
         tag_options = ["全部", "日常", "日剧"]
-        # 如果用户添加了自定义的标签，合并进筛选列表
         for c in st.session_state.cards:
             t = c.get("tags", "日常")
             if t not in tag_options:
@@ -407,7 +410,7 @@ with right_col:
         filtered_cards = [c for c in filtered_cards if selected_tag in c.get("tags", "")]
     filtered_cards = [c for c in filtered_cards if c.get("status", "learning") == status_key]
 
-    # 按倒序展示（新加入的在上面）
+    # 按倒序展示
     filtered_cards = filtered_cards[::-1]
 
     if not filtered_cards:
@@ -415,7 +418,6 @@ with right_col:
     else:
         for idx, card in enumerate(filtered_cards):
             card_id = card["id"]
-            
             card_label = f"🏷️ {card.get('tags', '日常')} | {card['word']} 【{card['furigana']}】"
             
             with st.expander(card_label, expanded=False):
@@ -445,15 +447,11 @@ with right_col:
                 with col_btn2:
                     if st.button("✏️ 载入编辑", key=f"edit_{card_id}_{idx}"):
                         st.session_state["in_word_actual"] = card["word"]
-                        
-                        # 同步到表单对应 state 键，载入编辑
                         st.session_state["val_furi"] = card["furigana"]
                         st.session_state["val_zh"] = card["meaning_zh"]
                         st.session_state["val_ja"] = card["meaning_ja"]
                         st.session_state["val_tags"] = card.get("tags", "日常")
                         st.session_state["val_sentence"] = card["example_sentence"]
-                        
-                        st.success("已载入左侧！请直接在左侧修改后，重新点击“确认归档入库”。")
                         st.rerun()
                 with col_btn3:
                     if st.button("🗑️", key=f"del_{card_id}_{idx}"):
