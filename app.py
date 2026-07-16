@@ -11,13 +11,19 @@ from pydantic import BaseModel
 from typing import Optional
 from pypdf import PdfReader
 
-app = FastAPI(title="情境生词消灭器-标准生产版")
+app = FastAPI(title="情境生词消灭器-安全生产版")
 
 # ==========================================
-# 1. 智谱 AI API Key 核心防护层
+# 1. 智谱 AI API Key 核心防护层（改用系统环境变量读取）
 # ==========================================
-RAW_KEY = "f365bebeb4714f7ba2489d0e188042e1.hOxdMA3OKJgwHiqJ"
-ZHIPU_API_KEY = RAW_KEY.replace("[", "").replace("]", "").split("(")[0].strip()
+ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY")
+
+if not ZHIPU_API_KEY:
+    # 给出明确的本地/线上未配置提示，防止程序静默崩溃
+    print("⚠️ 警告: 未检测到系统环境变量 ZHIPU_API_KEY，AI 功能将无法正常使用！")
+    # 如果本地测试，也可以在此处临时写一个备用 Key，但切记不要提交到公开仓库
+    ZHIPU_API_KEY = "YOUR_LOCAL_BACKUP_KEY_IF_NEEDED"
+
 client_ai = ZhipuAI(api_key=ZHIPU_API_KEY)
 
 # ==========================================
@@ -30,10 +36,10 @@ DEFAULT_CARDS = [
         "id": 1, "word": "相棒", "furigana": "あいぼう",
         "meaning_ja": "一緒に仕事や行動をする大切なパートナーのこと。",
         "meaning_zh": "老搭档、死党、伙伴", "context_source": "日剧",
-        "example_sentence": "お前は俺的最高の相棒だ。（你是我最好的搭档。）", "tags": "日剧", "status": "learning"
+        "example_sentence": "お前は俺の最高の相棒だ。（你是我最好的搭档。）", "tags": "日剧", "status": "learning"
     },
     {
-        "id": 2, "word": "一口", "furigana": "ひとくち",
+        "id": 2, "word": "一口", "furigana": "ひとくch",
         "meaning_ja": "食べ物や飲み物を、口の中に一度に入れる量。",
         "meaning_zh": "（吃/喝）一口", "context_source": "日常",
         "example_sentence": "これ、めちゃくちゃ美味しいから一口食べてみて！", "tags": "日常", "status": "learning"
@@ -50,7 +56,6 @@ def load_db():
         except Exception as e:
             print(f"读取数据库文件失败，切换到默认数据: {str(e)}")
     
-    # 文件不存在或解析失败时，初始化默认数据落盘
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_CARDS, f, ensure_ascii=False, indent=4)
@@ -114,7 +119,6 @@ def save_or_update_card(card: CardItem):
     if not card.word or not card.meaning_zh:
         raise HTTPException(status_code=400, detail="生词和中文释义不能为空")
 
-    # 规范化标签处理
     if "日常" in card.tags or "生活" in card.tags:
         card.tags = "日常"
     elif "剧" in card.tags or "动漫" in card.tags:
@@ -159,6 +163,9 @@ def update_card_status(card_id: int, payload: StatusUpdateRequest):
 
 @app.post("/api/ai-generate")
 def ai_generate(payload: AIRequest):
+    if not ZHIPU_API_KEY or ZHIPU_API_KEY.startswith("YOUR_LOCAL"):
+        raise HTTPException(status_code=500, detail="检测到未配置智谱 API Key，请检查平台环境变量配置")
+        
     if not payload.word:
         raise HTTPException(status_code=400, detail="生词不能为空")
     
@@ -253,7 +260,7 @@ async def scan_file(file: UploadFile = File(...)):
 @app.get("/api/cards/export")
 def export_excel():
     output = io.StringIO()
-    output.write('\ufeff')  # 写入BOM防止Excel打开乱码
+    output.write('\ufeff')
     writer = csv.writer(output)
     writer.writerow(["生词", "假名发音", "日文释义", "中文含义", "情境出处", "高频生活例句", "标签", "掌握状态"])
     for c in db_cards:
@@ -396,7 +403,7 @@ def index_page():
     </head>
     <body>
         <header>
-            <div style="font-weight: bold; font-size: 15px;">🍃 情境生词消灭器 <span style="font-size:11px; background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">标准版</span></div>
+            <div style="font-weight: bold; font-size: 15px;">🍃 情境生词消灭器 <span style="font-size:11px; background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">标准安全版</span></div>
             <div style="display: flex; gap: 8px;">
                 <input type="file" id="excel-importer" accept=".csv" onchange="importFromExcel()" style="display: none;">
                 <button onclick="document.getElementById('excel-importer').click()" class="mini-btn" style="background:#55826b; color:white; font-weight:bold; padding: 6px 12px;">📥 导入表格数据</button>
@@ -453,7 +460,6 @@ def index_page():
         <script>
             let currentTag = "全部"; let currentStatus = "learning";
 
-            // 监听粘贴板事件，支持直接贴图OCR识词
             document.addEventListener('paste', async (e) => {
                 const items = e.clipboardData.items;
                 for (let i = 0; i < items.length; i++) {
@@ -680,5 +686,4 @@ def index_page():
 
 
 if __name__ == "__main__":
-    # 可以在标准本地环境下愉快地通过 python 直接运行，支持热重载
     uvicorn.run("app:app", host="0.0.0.0", port=7860, reload=True)
