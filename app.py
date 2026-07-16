@@ -14,7 +14,6 @@ st.set_page_config(
     page_title="情境生词消灭器 🍃",
     page_icon="🍃",
     layout="wide",
-    initial_sidebar_state="collapsed" # 手机端默认收起侧边栏，保持主页清爽
 )
 
 # 注入全局 CSS：缩小字体、精简排版、美化虚线框、统一按钮样式
@@ -103,6 +102,21 @@ st.markdown("""
     }
     .hollow-container div[data-testid="stFileUploader"] button:hover {
         background-color: #4a7c6c !important;
+    }
+
+    /* 底部导入按钮的外观改造成和导出完全一致 */
+    .footer-import-container div[data-testid="stFileUploader"] button {
+        background-color: #4a7c6c !important;
+        color: white !important;
+        border: 1px solid #4a7c6c !important;
+        height: 38px !important;
+        font-size: 13px !important;
+        border-radius: 6px !important;
+        width: 100% !important;
+    }
+    .footer-import-container div[data-testid="stFileUploader"] button:hover {
+        background-color: #2d4a43 !important;
+        border-color: #2d4a43 !important;
     }
 
     /* 生词胶囊横向排列 */
@@ -209,81 +223,20 @@ if "temp_sentence" not in st.session_state:
     st.session_state.temp_sentence = ""
 
 # ==========================================
-# 4. 侧边栏（Sidebar）：统一备份与恢复系统
-# ==========================================
-with st.sidebar:
-    st.markdown("### ⚙️ 备份与恢复系统")
-    st.markdown("---")
-    
-    # 导出 CSV
-    if st.session_state.cards:
-        df = pd.DataFrame(st.session_state.cards)
-        df_export = df.copy()
-        df_export["status"] = df_export["status"].apply(lambda x: "已掌握" if x == "mastered" else "正在复习")
-        csv_data = df_export.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button(
-            label="📤 导出 CSV 备份",
-            data=csv_data,
-            file_name="my_japanese_cards.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # 导入 CSV（原生的完整组件，不强制隐藏内部结构，安全可靠，无任何多余箭头，点击即可导入）
-    header_upload = st.file_uploader(
-        "📥 导入 CSV 备份", 
-        type=["csv"], 
-        key="header_csv_uploader"
-    )
-    if header_upload is not None:
-        try:
-            df_import = pd.read_csv(header_upload, encoding="utf-8-sig")
-            imported_cards = []
-            new_id = max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1
-            for _, row in df_import.iterrows():
-                status_raw = row.get("status", "正在复习")
-                status = "mastered" if status_raw == "已掌握" else "learning"
-                
-                old_source = str(row.get("context_source", "")).strip()
-                new_tags = str(row.get("tags", "日常")).strip()
-                if old_source and old_source != "nan" and old_source != "通用":
-                    new_tags = old_source
-
-                imported_cards.append({
-                    "id": new_id,
-                    "word": str(row.get("word", "")).strip(),
-                    "furigana": str(row.get("furigana", "")).strip(),
-                    "meaning_ja": str(row.get("meaning_ja", "")).strip(),
-                    "meaning_zh": str(row.get("meaning_zh", "")).strip(),
-                    "example_sentence": str(row.get("example_sentence", "")).strip(),
-                    "tags": new_tags,
-                    "status": status
-                })
-                new_id += 1
-            st.session_state.cards.extend(imported_cards)
-            save_db(st.session_state.cards)
-            st.sidebar.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
-            st.rerun()
-        except Exception as e:
-            st.sidebar.error(f"导入解析失败：{e}")
-
-# ==========================================
-# 5. 主页面头部：彻底净化
+# 4. 主页面头部：彻底净化
 # ==========================================
 st.markdown("<h1 style='margin: 0; padding-bottom: 5px;'>🍃 情境生词消灭器</h1>", unsafe_allow_html=True)
 st.markdown("<hr style='margin: 8px 0;'>", unsafe_allow_html=True)
 
 # ==========================================
-# 6. 主体布局：双栏极简
+# 5. 主体布局：双栏极简
 # ==========================================
 left_col, right_col = st.columns([1, 1])
 
 # --- 左栏：输入与 AI 生成端 ---
 with left_col:
     
-    # 🌲 森林树洞部分（全新升级：每次使用后更换 key，彻底解决第二次上传失效的问题）
+    # 🌲 森林树洞部分
     with st.container(border=True):
         st.markdown("<span style='color:#846226; font-weight:bold; font-size:13px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
         st.markdown("<span style='color:#a49070; font-size:11px; display:block; margin-bottom:6px;'>上传截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
@@ -332,7 +285,7 @@ with left_col:
                             filter_prompt = (
                                 "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
                                 f"目标文本：\n{extracted_text}\n\n"
-                                "请直接返回一个纯JSON格式的字符串数组，例：[\"単語1\", \"単語2\"]，不要输出任何非 JSON 字符。"
+                                "请直接返回一个纯JSON格式 of 字符串数组，例：[\"単語1\", \"単語2\"]，不要输出任何非 JSON 字符。"
                             )
                             res = client_ai.chat.completions.create(
                                 model="glm-4-flash",
@@ -537,3 +490,69 @@ with right_col:
                         save_db(st.session_state.cards)
                         st.success("卡片已删除")
                         st.rerun()
+
+    # ==========================================
+    # 💾 右下角：并排备份与导入控制台（彻底修复排版，完全兼容手机与电脑）
+    # ==========================================
+    st.markdown("<br><hr style='border: 1px dashed #8ba89e; margin: 15px 0;'>", unsafe_allow_html=True)
+    st.markdown("<span style='color:#846226; font-weight:bold; font-size:13px; display:block; margin-bottom:10px;'>💾 数据备份与恢复</span>", unsafe_allow_html=True)
+    
+    col_export_btn, col_import_btn = st.columns(2)
+    
+    with col_export_btn:
+        # 导出 CSV 备份
+        if st.session_state.cards:
+            df = pd.DataFrame(st.session_state.cards)
+            df_export = df.copy()
+            df_export["status"] = df_export["status"].apply(lambda x: "已掌握" if x == "mastered" else "正在复习")
+            csv_data = df_export.to_csv(index=False, encoding="utf-8-sig")
+            st.download_button(
+                label="📤 导出 CSV 备份",
+                data=csv_data,
+                file_name="my_japanese_cards.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="footer_export_button"
+            )
+            
+    with col_import_btn:
+        # 导入 CSV 备份（原生改造，点击即弹出文件窗口，无任何多余下拉箭头）
+        st.markdown("<div class='footer-import-container'>", unsafe_allow_html=True)
+        footer_upload = st.file_uploader(
+            "📥 导入 CSV 备份", 
+            type=["csv"], 
+            key="footer_csv_uploader",
+            label_visibility="collapsed"
+        )
+        if footer_upload is not None:
+            try:
+                df_import = pd.read_csv(footer_upload, encoding="utf-8-sig")
+                imported_cards = []
+                new_id = max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1
+                for _, row in df_import.iterrows():
+                    status_raw = row.get("status", "正在复习")
+                    status = "mastered" if status_raw == "已掌握" else "learning"
+                    
+                    old_source = str(row.get("context_source", "")).strip()
+                    new_tags = str(row.get("tags", "日常")).strip()
+                    if old_source and old_source != "nan" and old_source != "通用":
+                        new_tags = old_source
+
+                    imported_cards.append({
+                        "id": new_id,
+                        "word": str(row.get("word", "")).strip(),
+                        "furigana": str(row.get("furigana", "")).strip(),
+                        "meaning_ja": str(row.get("meaning_ja", "")).strip(),
+                        "meaning_zh": str(row.get("meaning_zh", "")).strip(),
+                        "example_sentence": str(row.get("example_sentence", "")).strip(),
+                        "tags": new_tags,
+                        "status": status
+                    })
+                    new_id += 1
+                st.session_state.cards.extend(imported_cards)
+                save_db(st.session_state.cards)
+                st.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
+                st.rerun()
+            except Exception as e:
+                st.error(f"导入解析失败：{e}")
+        st.markdown("</div>", unsafe_allow_html=True)
