@@ -16,7 +16,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# 注入全局 CSS：缩小字体、精简排版、美化虚线框、统一按钮样式
+# 注入全局 CSS：彻底重塑两个 Upload 按钮，强行赋予精美中文字样和森林绿外观
 st.markdown("""
     <style>
     /* 全局基础字体调小，视觉更精致 */
@@ -30,9 +30,10 @@ st.markdown("""
     
     :root {
         --primary-color: #4a7c6c;
+        --hover-color: #2d4a43;
     }
     
-    /* 统一所有主要按钮（导出、表单提交等）的底色与样式 */
+    /* 1. 统一所有主要按钮（导出、表单提交等）的底色与样式 */
     .stButton>button, 
     .stDownloadButton>button {
         background-color: #4a7c6c !important;
@@ -71,49 +72,93 @@ st.markdown("""
         padding: 12px !important;
     }
     
-    /* 极致美化树洞的 Upload 组件 */
-    div[data-testid="stFileUploader"] {
+    /* ==========================================
+       【关键美化 1】：森林树洞的专属 Upload 按钮重塑
+       ========================================== */
+    .hollow-container div[data-testid="stFileUploader"] {
         background-color: transparent !important;
         border: none !important;
         padding: 0px !important;
     }
-    /* 隐藏上传组件自带的各种多余提示和拖拽区，只留一个干净的按钮 */
-    div[data-testid="stFileUploader"] section {
-        padding: 0px !important;
-    }
-    div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
+    /* 隐藏原生的拖拽框和拖拽文字 */
+    .hollow-container div[data-testid="stFileUploader"] section,
+    .hollow-container div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
         padding: 0px !important;
         border: none !important;
         background: transparent !important;
     }
-    div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] > div {
-        display: none !important; /* 隐藏拖拽文字提示 */
+    .hollow-container div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] > div {
+        display: none !important; 
     }
-
-    /* 树洞里的 Upload 按钮美化得小巧一点 */
+    /* 彻底重置树洞内按钮，强行隐藏原生的 "Browse files" 或 "Upload" 字样与图标 */
     .hollow-container div[data-testid="stFileUploader"] button {
         background-color: #8ba89e !important;
         color: white !important;
         border: none !important;
-        border-radius: 4px !important;
-        padding: 2px 10px !important;
-        font-size: 12px !important;
-        height: 30px !important;
+        border-radius: 6px !important;
+        height: 34px !important;
+        width: 180px !important;  /* 适中的精致宽度 */
+        font-size: 0px !important;  /* 隐藏原生英文字体 */
+        position: relative !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05) !important;
+    }
+    /* 用伪元素强行写上精美的中文内容 */
+    .hollow-container div[data-testid="stFileUploader"] button::after {
+        content: "🌲 投入树洞 (截图/PDF)";
+        font-size: 13px !important;
+        color: white !important;
+        position: absolute !important;
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        white-space: nowrap !important;
     }
     .hollow-container div[data-testid="stFileUploader"] button:hover {
         background-color: #4a7c6c !important;
     }
 
-    /* 底部导入按钮的外观改造成和导出完全一致 */
+    /* ==========================================
+       【关键美化 2】：右下角导入按钮深度重塑
+       ========================================== */
+    .footer-import-container div[data-testid="stFileUploader"] {
+        background-color: transparent !important;
+        border: none !important;
+        padding: 0px !important;
+    }
+    /* 隐藏导入原生拖拽和说明区 */
+    .footer-import-container div[data-testid="stFileUploader"] section,
+    .footer-import-container div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
+        padding: 0px !important;
+        border: none !important;
+        background: transparent !important;
+    }
+    .footer-import-container div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] > div {
+        display: none !important; 
+    }
+    /* 强行接管导入按钮：外观和高度完全对齐左侧的 stDownloadButton */
     .footer-import-container div[data-testid="stFileUploader"] button {
         background-color: #4a7c6c !important;
         color: white !important;
         border: 1px solid #4a7c6c !important;
         height: 38px !important;
-        font-size: 13px !important;
         border-radius: 6px !important;
         width: 100% !important;
+        font-size: 0px !important; /* 隐藏原生英文 */
+        position: relative !important;
+        cursor: pointer !important;
     }
+    /* 用伪元素强行写上中文，达到和导出按钮镜像对称的视觉效果 */
+    .footer-import-container div[data-testid="stFileUploader"] button::after {
+        content: "📥 导入 CSV 备份";
+        font-size: 13px !important;
+        color: white !important;
+        position: absolute !important;
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        white-space: nowrap !important;
+    }
+    /* 悬停变色，与导出完全一致 */
     .footer-import-container div[data-testid="stFileUploader"] button:hover {
         background-color: #2d4a43 !important;
         border-color: #2d4a43 !important;
@@ -239,7 +284,7 @@ with left_col:
     # 🌲 森林树洞部分
     with st.container(border=True):
         st.markdown("<span style='color:#846226; font-weight:bold; font-size:13px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
-        st.markdown("<span style='color:#a49070; font-size:11px; display:block; margin-bottom:6px;'>上传截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
+        st.markdown("<span style='color:#a49070; font-size:11px; display:block; margin-bottom:12px;'>上传截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
         
         st.markdown("<div class='hollow-container'>", unsafe_allow_html=True)
         
@@ -285,7 +330,7 @@ with left_col:
                             filter_prompt = (
                                 "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
                                 f"目标文本：\n{extracted_text}\n\n"
-                                "请直接返回一个纯JSON格式 of 字符串数组，例：[\"単語1\", \"単語2\"]，不要输出任何非 JSON 字符。"
+                                "请直接返回一个纯JSON格式的字符串数组，例：[\"単語1\", \"単語2\"]，不要输出任何非 JSON 字符。"
                             )
                             res = client_ai.chat.completions.create(
                                 model="glm-4-flash",
@@ -309,7 +354,7 @@ with left_col:
 
         # 渲染横向排列的单词胶囊
         if st.session_state.hollow_words:
-            st.markdown("<span style='font-size:11px; font-weight:bold; color:var(--primary-color);'>💡 点击下方胶囊直接填入捕获终端：</span>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 10px;'><span style='font-size:11px; font-weight:bold; color:var(--primary-color);'>💡 点击下方胶囊直接填入捕获终端：</span></div>", unsafe_allow_html=True)
             
             # 使用 5 列横向平铺胶囊
             cols = st.columns(5)
@@ -492,7 +537,7 @@ with right_col:
                         st.rerun()
 
     # ==========================================
-    # 💾 右下角：并排备份与导入控制台（彻底修复排版，完全兼容手机与电脑）
+    # 💾 右下角：并排备份与导入控制台（极致美化版）
     # ==========================================
     st.markdown("<br><hr style='border: 1px dashed #8ba89e; margin: 15px 0;'>", unsafe_allow_html=True)
     st.markdown("<span style='color:#846226; font-weight:bold; font-size:13px; display:block; margin-bottom:10px;'>💾 数据备份与恢复</span>", unsafe_allow_html=True)
@@ -516,10 +561,10 @@ with right_col:
             )
             
     with col_import_btn:
-        # 导入 CSV 备份（原生改造，点击即弹出文件窗口，无任何多余下拉箭头）
+        # 导入 CSV 备份（通过更深的 CSS 隔离完美美化成森林绿按钮）
         st.markdown("<div class='footer-import-container'>", unsafe_allow_html=True)
         footer_upload = st.file_uploader(
-            "📥 导入 CSV 备份", 
+            "选择导入文件", 
             type=["csv"], 
             key="footer_csv_uploader",
             label_visibility="collapsed"
