@@ -33,11 +33,10 @@ st.markdown("""
         --primary-color: #4a7c6c;
     }
     
-    /* 统一所有主要按钮（st.button/download_button/popover）的底色与样式，使其保持完全一致 */
+    /* 统一所有主要按钮（导出、导入、表单提交等）的底色与样式 */
     .stButton>button, 
-    .stDownloadButton>button, 
-    div[data-testid="stPopover"]>button,
-    div[data-testid="stPopoverContent"] button {
+    .stDownloadButton>button,
+    div[data-testid="stFileUploader"] > section > button {
         background-color: #4a7c6c !important;
         color: white !important;
         border-radius: 6px !important;
@@ -53,10 +52,9 @@ st.markdown("""
         justify-content: center !important;
     }
     
-    /* 悬停状态一致 */
     .stButton>button:hover, 
-    .stDownloadButton>button:hover, 
-    div[data-testid="stPopover"]>button:hover {
+    .stDownloadButton>button:hover,
+    div[data-testid="stFileUploader"] > section > button:hover {
         background-color: #2d4a43 !important;
         border-color: #2d4a43 !important;
         color: white !important;
@@ -76,32 +74,51 @@ st.markdown("""
         padding: 12px !important;
     }
     
-    /* 极致美化树洞的原生 Upload 组件 */
+    /* 极致美化树洞和头部的原生 Upload 组件 */
     div[data-testid="stFileUploader"] {
-        background-color: #f4f8f6 !important;
-        border: 1px dashed #b2cfc5 !important;
-        border-radius: 8px !important;
-        padding: 8px !important;
+        background-color: transparent !important;
+        border: none !important;
+        padding: 0px !important;
     }
-    /* 隐藏上传组件自带的多余提示文字和垃圾桶等空间 */
+    /* 隐藏上传组件自带的各种多余提示和拖拽区，只留一个干净的按钮 */
     div[data-testid="stFileUploader"] section {
         padding: 0px !important;
     }
     div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
-        padding: 6px !important;
+        padding: 0px !important;
         border: none !important;
         background: transparent !important;
     }
-    /* 美化 Upload 按钮本身 */
-    div[data-testid="stFileUploader"] button {
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] > div {
+        display: none !important; /* 隐藏拖拽文字提示 */
+    }
+    
+    /* 让头部导入按钮在视觉上看起来和导出完全是一个模子里出来的 */
+    .header-import-container div[data-testid="stFileUploader"] button {
+        background-color: #4a7c6c !important;
+        color: white !important;
+        border: 1px solid #4a7c6c !important;
+        height: 38px !important;
+        font-size: 13px !important;
+        border-radius: 6px !important;
+        width: 100% !important;
+    }
+    .header-import-container div[data-testid="stFileUploader"] button:hover {
+        background-color: #2d4a43 !important;
+        border-color: #2d4a43 !important;
+    }
+
+    /* 树洞里的 Upload 按钮美化得小巧一点 */
+    .hollow-container div[data-testid="stFileUploader"] button {
         background-color: #8ba89e !important;
         color: white !important;
         border: none !important;
         border-radius: 4px !important;
         padding: 2px 10px !important;
         font-size: 12px !important;
+        height: 30px !important;
     }
-    div[data-testid="stFileUploader"] button:hover {
+    .hollow-container div[data-testid="stFileUploader"] button:hover {
         background-color: #4a7c6c !important;
     }
 
@@ -160,7 +177,7 @@ DEFAULT_CARDS = [
         "status": "learning"
     },
     {
-        "id": 2, "word": "一口", "furigana": "ひとくち",
+        "id": 2, "word": "一口", "furigana": "ひとくch",
         "meaning_ja": "食べ物や飲み物を、口の中に一度に入れる量。",
         "meaning_zh": "（吃/喝）一口",
         "tags": "日常", 
@@ -190,6 +207,9 @@ if "cards" not in st.session_state:
     st.session_state.cards = load_db()
 if "hollow_words" not in st.session_state:
     st.session_state.hollow_words = []
+# 用于重置树洞 Upload 状态的计数器 key
+if "uploader_counter" not in st.session_state:
+    st.session_state.uploader_counter = 0
 
 # 安全的临时字段中转
 if "temp_word" not in st.session_state:
@@ -206,7 +226,7 @@ if "temp_sentence" not in st.session_state:
     st.session_state.temp_sentence = ""
 
 # ==========================================
-# 4. 一行式头部：标题、导入与导出完美对称对齐
+# 4. 一行式头部：标题、导入与导出完美一模一样
 # ==========================================
 col_title, col_export, col_import = st.columns([2.5, 1, 1], vertical_alignment="bottom")
 
@@ -229,41 +249,46 @@ with col_export:
         )
 
 with col_import:
-    # 导入弹出气泡，背景色已完全通过 CSS 强制与导出按钮统一
-    with st.popover("📥 导入 CSV 备份", use_container_width=True):
-        st.markdown("<small style='color: gray;'>上传导出的 CSV 备份文件恢复数据：</small>", unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("选择 CSV 文件", type=["csv"], label_visibility="collapsed")
-        if uploaded_file is not None:
-            try:
-                df_import = pd.read_csv(uploaded_file, encoding="utf-8-sig")
-                imported_cards = []
-                new_id = max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1
-                for _, row in df_import.iterrows():
-                    status_raw = row.get("status", "正在复习")
-                    status = "mastered" if status_raw == "已掌握" else "learning"
-                    
-                    old_source = str(row.get("context_source", "")).strip()
-                    new_tags = str(row.get("tags", "日常")).strip()
-                    if old_source and old_source != "nan" and old_source != "通用":
-                        new_tags = old_source
+    # 完美重构：不再使用 Popover 组件，直接展示原生 Upload 并通过 CSS 彻底改造成扁平、无下划箭头的极简按钮！
+    st.markdown("<div class='header-import-container'>", unsafe_allow_html=True)
+    header_upload = st.file_uploader(
+        "📥 导入 CSV 备份", 
+        type=["csv"], 
+        key="header_csv_uploader", 
+        label_visibility="collapsed"
+    )
+    if header_upload is not None:
+        try:
+            df_import = pd.read_csv(header_upload, encoding="utf-8-sig")
+            imported_cards = []
+            new_id = max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1
+            for _, row in df_import.iterrows():
+                status_raw = row.get("status", "正在复习")
+                status = "mastered" if status_raw == "已掌握" else "learning"
+                
+                old_source = str(row.get("context_source", "")).strip()
+                new_tags = str(row.get("tags", "日常")).strip()
+                if old_source and old_source != "nan" and old_source != "通用":
+                    new_tags = old_source
 
-                    imported_cards.append({
-                        "id": new_id,
-                        "word": str(row.get("word", "")).strip(),
-                        "furigana": str(row.get("furigana", "")).strip(),
-                        "meaning_ja": str(row.get("meaning_ja", "")).strip(),
-                        "meaning_zh": str(row.get("meaning_zh", "")).strip(),
-                        "example_sentence": str(row.get("example_sentence", "")).strip(),
-                        "tags": new_tags,
-                        "status": status
-                    })
-                    new_id += 1
-                st.session_state.cards.extend(imported_cards)
-                save_db(st.session_state.cards)
-                st.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
-                st.rerun()
-            except Exception as e:
-                st.error(f"导入解析失败：{e}")
+                imported_cards.append({
+                    "id": new_id,
+                    "word": str(row.get("word", "")).strip(),
+                    "furigana": str(row.get("furigana", "")).strip(),
+                    "meaning_ja": str(row.get("meaning_ja", "")).strip(),
+                    "meaning_zh": str(row.get("meaning_zh", "")).strip(),
+                    "example_sentence": str(row.get("example_sentence", "")).strip(),
+                    "tags": new_tags,
+                    "status": status
+                })
+                new_id += 1
+            st.session_state.cards.extend(imported_cards)
+            save_db(st.session_state.cards)
+            st.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
+            st.rerun()
+        except Exception as e:
+            st.error(f"导入解析失败：{e}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("<hr style='margin: 8px 0;'>", unsafe_allow_html=True)
 
@@ -275,12 +300,21 @@ left_col, right_col = st.columns([1, 1])
 # --- 左栏：输入与 AI 生成端 ---
 with left_col:
     
-    # 🌲 森林树洞部分（已大幅度美化 Upload 组件）
+    # 🌲 森林树洞部分（全新升级：每次使用后更换 key，彻底解决第二次上传失效的问题）
     with st.container(border=True):
         st.markdown("<span style='color:#846226; font-weight:bold; font-size:13px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
         st.markdown("<span style='color:#a49070; font-size:11px; display:block; margin-bottom:6px;'>上传截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
         
-        hollow_file = st.file_uploader("选择文件", type=["png", "jpg", "jpeg", "webp", "pdf"], key="hollow_uploader", label_visibility="collapsed")
+        st.markdown("<div class='hollow-container'>", unsafe_allow_html=True)
+        
+        # 使用自增 counter 来作为组件 key，只要发生了解析，key一变，第二次就能无缝上传
+        uploader_key = f"hollow_uploader_{st.session_state.uploader_counter}"
+        hollow_file = st.file_uploader(
+            "选择文件", 
+            type=["png", "jpg", "jpeg", "webp", "pdf"], 
+            key=uploader_key, 
+            label_visibility="collapsed"
+        )
         
         if hollow_file is not None:
             file_bytes = hollow_file.read()
@@ -326,9 +360,16 @@ with left_col:
                             if raw_arr.startswith("```"):
                                 raw_arr = raw_arr.split("\n", 1)[1].rsplit("\n", 1)[0]
                             st.session_state.hollow_words = json.loads(raw_arr)
+                            
+                            # 解析完后，自增计数器，下一次用户点击上传时，使用一个崭新的 uploader
+                            st.session_state.uploader_counter += 1
+                            st.rerun()
                     except Exception as e:
                         st.error(f"树洞解析出错: {e}")
                         st.session_state.hollow_words = ["解析失败"]
+                        st.session_state.uploader_counter += 1
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
         # 渲染横向排列的单词胶囊
         if st.session_state.hollow_words:
@@ -349,27 +390,25 @@ with left_col:
     st.subheader("🌲 生词捕获终端")
 
     input_word = st.text_input("日语生词 *", value=st.session_state.temp_word)
-    input_hint = st.text_area("当前情境台词 (选填)", placeholder="贴入当前句子...")
 
     # ==========================================
-    # 【高频例句生成三句话】：更新 Prompt 指令
+    # 【唤醒 AI 智能解析】：隐藏智谱大模型字样，直接解析
     # ==========================================
     if st.button("🪄 唤醒 AI 智能解析填表"):
         if not input_word.strip():
             st.warning("请先输入生词")
         else:
-            with st.spinner("🍃 智谱大模型 GLM-4-Flash 正在深度解析中..."):
+            with st.spinner("🍃 智能助手正在深度解析中..."):
                 try:
                     prompt = (
                         "你是一个精通中日双语的日语教学专家。请为以下日语生词进行解析。\n"
-                        f"待解析生词：{input_word.strip()}\n"
-                        f"用户提供的情境提示：{input_hint.strip() if input_hint.strip() else '无'}\n\n"
+                        f"待解析生词：{input_word.strip()}\n\n"
                         "请严格按照以下 JSON 格式返回数据，不要包含任何 markdown 标记，不要有任何废话：\n"
                         "{\n"
                         '  "furigana": "该生词的纯假名发音",\n'
                         '  "meaning_zh": "该生词最准确的中文含义",\n'
                         '  "meaning_ja": "【绝对只能使用纯日语！】用简单易懂、符合N4水平的日语来解释该词的意思。",\n'
-                        '  "tags": "只能从以下两个标签中选择一个填入：若属于动漫/日剧/台词填\'日剧\'，若是通用生活口语则填\'日常\'，如果提供了更具体的情境则可以提炼出简洁的1-3字情境标签",\n'
+                        '  "tags": "只能从以下两个标签中选择一个填入：若属于动漫/日剧/台词填\'日剧\'，若是通用生活口语则填\'日常\'，或者你可以提炼出简洁的1-3字具体情境标签",\n'
                         '  "example_sentence": "【请务必给出三句不同使用语境、生活高频的完美日语例句，并分别附带对应的括号中文翻译。格式参考以下范例，必须换行排版：\\n1. 第一句例句（第一句的翻译）\\n2. 第二句例句（第二句的翻译）\\n3. 第三句例句（第三句的翻译）"\n'
                         "}"
                     )
@@ -394,7 +433,7 @@ with left_col:
                     st.success("✨ 解析成功！数据已同步至下方的属性面板，请核对。")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"大模型通讯或解析失败: {e}")
+                    st.error(f"智能解析失败: {e}")
 
     st.markdown("---")
     st.markdown("📋 **属性校对面板**")
@@ -409,7 +448,7 @@ with left_col:
 
         ja_val = st.text_area("简易日解 (独立思维模式)", value=st.session_state.temp_ja)
         tags_val = st.text_input("情境标签", value=st.session_state.temp_tags)
-        sentence_val = st.text_area("高频情境例句 (支持多行例句)", value=st.session_state.temp_sentence)
+        sentence_val = st.text_area("高频情境例句 (已生成三句例句)", value=st.session_state.temp_sentence)
 
         submit_btn = st.form_submit_button("🌱 确认归档入库", use_container_width=True)
         
@@ -481,7 +520,6 @@ with right_col:
                 if card.get("meaning_ja"):
                     st.markdown(f"**日文释义** (N4纯日解)：\n> {card['meaning_ja']}")
                 if card.get("example_sentence"):
-                    # 使用 markdown 保留换行和列表展示
                     st.markdown(f"**例句情境**：\n\n{card['example_sentence']}")
                 
                 # 操作按键
