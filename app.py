@@ -8,7 +8,7 @@ from zhipuai import ZhipuAI
 from pypdf import PdfReader
 
 # ==========================================
-# 1. 页面配置与精致森林绿样式（全局字体缩小）
+# 1. 页面配置与全局精美森林绿样式
 # ==========================================
 st.set_page_config(
     page_title="情境生词消灭器 🍃",
@@ -16,7 +16,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# 注入全局 CSS：彻底重塑两个 Upload 按钮，强行赋予精美中文字样和森林绿外观
 st.markdown("""
     <style>
     /* 全局基础字体调小，视觉更精致 */
@@ -33,7 +32,7 @@ st.markdown("""
         --hover-color: #2d4a43;
     }
     
-    /* 1. 统一所有主要按钮（导出、表单提交等）的底色与样式 */
+    /* 1. 统一所有标准按钮（导出、提交、普通功能键）的底层基础样式 */
     .stButton>button, 
     .stDownloadButton>button {
         background-color: #4a7c6c !important;
@@ -64,7 +63,7 @@ st.markdown("""
         padding: 0px !important;
     }
 
-    /* 原生 border 容器伪装成漂亮的森林虚线树洞 */
+    /* 森林树洞虚线外框容器 */
     div[data-testid="stVerticalBlockBorderContainer"] {
         border: 2px dashed #8ba89e !important;
         background-color: #fdfaf4 !important;
@@ -73,37 +72,45 @@ st.markdown("""
     }
     
     /* ==========================================
-       【关键美化 1】：森林树洞的专属 Upload 按钮重塑
+       【终极改造】：彻底抹杀原生 FileUploader 外壳与图标
        ========================================== */
-    .hollow-container div[data-testid="stFileUploader"] {
-        background-color: transparent !important;
-        border: none !important;
-        padding: 0px !important;
+    /* 剥离所有上传组件的虚线外框、底色、边距 */
+    div[data-testid="stFileUploader"] {
+        margin: 0 !important;
+        padding: 0 !important;
     }
-    /* 隐藏原生的拖拽框和拖拽文字 */
-    .hollow-container div[data-testid="stFileUploader"] section,
-    .hollow-container div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
-        padding: 0px !important;
+    div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"],
+    div[data-testid="stFileUploader"] section {
         border: none !important;
         background: transparent !important;
+        background-color: transparent !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        min-height: 0 !important;
     }
-    .hollow-container div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] > div {
-        display: none !important; 
+    /* 强行杀光所有原生文字、上传提示、以及原生 SVG 图标 */
+    div[data-testid="stFileUploader"] span,
+    div[data-testid="stFileUploader"] small,
+    div[data-testid="stFileUploader"] svg,
+    div[data-testid="stFileUploader"] p {
+        display: none !important;
     }
-    /* 彻底重置树洞内按钮，强行隐藏原生的 "Browse files" 或 "Upload" 字样与图标 */
-    .hollow-container div[data-testid="stFileUploader"] button {
+
+    /* --- 狙击左列：森林树洞专属 Upload 按钮 --- */
+    div[data-testid="stColumn"]:nth-of-type(1) div[data-testid="stFileUploader"] button {
         background-color: #8ba89e !important;
         color: white !important;
         border: none !important;
         border-radius: 6px !important;
-        height: 34px !important;
-        width: 180px !important;  /* 适中的精致宽度 */
-        font-size: 0px !important;  /* 隐藏原生英文字体 */
+        height: 38px !important;
+        width: 100% !important;
         position: relative !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05) !important;
+        box-shadow: none !important;
+        cursor: pointer !important;
+        display: block !important;
+        margin: 0 !important;
     }
-    /* 用伪元素强行写上精美的中文内容 */
-    .hollow-container div[data-testid="stFileUploader"] button::after {
+    div[data-testid="stColumn"]:nth-of-type(1) div[data-testid="stFileUploader"] button::after {
         content: "🌲 投入树洞 (截图/PDF)";
         font-size: 13px !important;
         color: white !important;
@@ -112,43 +119,28 @@ st.markdown("""
         top: 50% !important;
         transform: translate(-50%, -50%) !important;
         white-space: nowrap !important;
+        display: block !important;
+        font-weight: normal !important;
     }
-    .hollow-container div[data-testid="stFileUploader"] button:hover {
+    div[data-testid="stColumn"]:nth-of-type(1) div[data-testid="stFileUploader"] button:hover {
         background-color: #4a7c6c !important;
     }
 
-    /* ==========================================
-       【关键美化 2】：右下角导入按钮深度重塑
-       ========================================== */
-    .footer-import-container div[data-testid="stFileUploader"] {
-        background-color: transparent !important;
-        border: none !important;
-        padding: 0px !important;
-    }
-    /* 隐藏导入原生拖拽和说明区 */
-    .footer-import-container div[data-testid="stFileUploader"] section,
-    .footer-import-container div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
-        padding: 0px !important;
-        border: none !important;
-        background: transparent !important;
-    }
-    .footer-import-container div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] > div {
-        display: none !important; 
-    }
-    /* 强行接管导入按钮：外观和高度完全对齐左侧的 stDownloadButton */
-    .footer-import-container div[data-testid="stFileUploader"] button {
+    /* --- 狙击右列：底部数据恢复导入 Upload 按钮 --- */
+    div[data-testid="stColumn"]:nth-of-type(2) div[data-testid="stFileUploader"] button {
         background-color: #4a7c6c !important;
         color: white !important;
         border: 1px solid #4a7c6c !important;
-        height: 38px !important;
         border-radius: 6px !important;
+        height: 38px !important;
         width: 100% !important;
-        font-size: 0px !important; /* 隐藏原生英文 */
         position: relative !important;
+        box-shadow: none !important;
         cursor: pointer !important;
+        display: block !important;
+        margin: 0 !important;
     }
-    /* 用伪元素强行写上中文，达到和导出按钮镜像对称的视觉效果 */
-    .footer-import-container div[data-testid="stFileUploader"] button::after {
+    div[data-testid="stColumn"]:nth-of-type(2) div[data-testid="stFileUploader"] button::after {
         content: "📥 导入 CSV 备份";
         font-size: 13px !important;
         color: white !important;
@@ -157,14 +149,15 @@ st.markdown("""
         top: 50% !important;
         transform: translate(-50%, -50%) !important;
         white-space: nowrap !important;
+        display: block !important;
+        font-weight: normal !important;
     }
-    /* 悬停变色，与导出完全一致 */
-    .footer-import-container div[data-testid="stFileUploader"] button:hover {
+    div[data-testid="stColumn"]:nth-of-type(2) div[data-testid="stFileUploader"] button:hover {
         background-color: #2d4a43 !important;
         border-color: #2d4a43 !important;
     }
 
-    /* 生词胶囊横向排列 */
+    /* 生词胶囊横向排列样式 */
     div[data-testid="stHorizontalBlock"] .word-pill-container,
     .pill-wrapper {
         display: flex;
@@ -173,7 +166,6 @@ st.markdown("""
         margin-top: 5px;
         margin-bottom: 5px;
     }
-    /* 自定义胶囊按钮样式 */
     div.stButton > button[kind="secondary"] {
         background-color: #ebdcb9 !important;
         color: #5a4525 !important;
@@ -244,16 +236,19 @@ def save_db(data):
     except Exception as e:
         st.error(f"本地保存数据库失败: {e}")
 
-# 初始化所有的非组件绑定状态
+# 初始化状态变量
 if "cards" not in st.session_state:
     st.session_state.cards = load_db()
 if "hollow_words" not in st.session_state:
     st.session_state.hollow_words = []
-# 用于重置树洞 Upload 状态的计数器 key
+
+# 双动态自增计数器：绝对保障上传响应永远不卡死
 if "uploader_counter" not in st.session_state:
     st.session_state.uploader_counter = 0
+if "import_uploader_counter" not in st.session_state:
+    st.session_state.import_uploader_counter = 0
 
-# 安全的临时字段中转
+# 临时字段中转
 if "temp_word" not in st.session_state:
     st.session_state.temp_word = ""
 if "temp_furi" not in st.session_state:
@@ -268,27 +263,25 @@ if "temp_sentence" not in st.session_state:
     st.session_state.temp_sentence = ""
 
 # ==========================================
-# 4. 主页面头部：彻底净化
+# 4. 主页面头部
 # ==========================================
 st.markdown("<h1 style='margin: 0; padding-bottom: 5px;'>🍃 情境生词消灭器</h1>", unsafe_allow_html=True)
 st.markdown("<hr style='margin: 8px 0;'>", unsafe_allow_html=True)
 
 # ==========================================
-# 5. 主体布局：双栏极简
+# 5. 主体布局：双栏对立
 # ==========================================
 left_col, right_col = st.columns([1, 1])
 
-# --- 左栏：输入与 AI 生成端 ---
+# --- 左栏：树洞上传与 AI 智能填表 ---
 with left_col:
     
-    # 🌲 森林树洞部分
+    # 🌲 森林树洞
     with st.container(border=True):
         st.markdown("<span style='color:#846226; font-weight:bold; font-size:13px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
         st.markdown("<span style='color:#a49070; font-size:11px; display:block; margin-bottom:12px;'>上传截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
         
-        st.markdown("<div class='hollow-container'>", unsafe_allow_html=True)
-        
-        # 使用自增 counter 来作为组件 key，只要发生了解析，key一变，第二次就能无缝上传
+        # 动态绑定 Key：每次解析完毕自动销毁旧控件，百分之百保障第2次、第N次上传无响应死穴！
         uploader_key = f"hollow_uploader_{st.session_state.uploader_counter}"
         hollow_file = st.file_uploader(
             "选择文件", 
@@ -297,66 +290,62 @@ with left_col:
             label_visibility="collapsed"
         )
         
+        # 【关键修正】：彻底移除原有 if not hollow_words 的死锁判断！
+        # 只要文件不为空，立刻执行无条件解析！
         if hollow_file is not None:
             file_bytes = hollow_file.read()
             filename = hollow_file.name.lower()
             extracted_text = ""
             
-            if not st.session_state.hollow_words:
-                with st.spinner("🌲 树洞正在努力解析文件..."):
-                    try:
-                        if filename.endswith(".pdf"):
-                            reader = PdfReader(io.BytesIO(file_bytes))
-                            for page in reader.pages[:5]:
-                                extracted_text += page.extract_text() or ""
-                        else:
-                            # 多模态解析图片
-                            base64_image = base64.b64encode(file_bytes).decode('utf-8')
-                            response = client_ai.chat.completions.create(
-                                model="glm-4v-flash",
-                                messages=[{
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "text", "text": "请仔细辨认并提取出图片里的所有日语文本。不要任何解释说明，直接输出原文。"},
-                                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                                    ]
-                                }],
-                                temperature=0.1
-                            )
-                            extracted_text = response.choices[0].message.content.strip()
+            with st.spinner("🌲 树洞正在全速解析中，请稍候..."):
+                try:
+                    if filename.endswith(".pdf"):
+                        reader = PdfReader(io.BytesIO(file_bytes))
+                        for page in reader.pages[:5]:
+                            extracted_text += page.extract_text() or ""
+                    else:
+                        base64_image = base64.b64encode(file_bytes).decode('utf-8')
+                        response = client_ai.chat.completions.create(
+                            model="glm-4v-flash",
+                            messages=[{
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": "请仔细辨认并提取出图片里的所有日语文本。不要任何解释说明，直接输出原文。"},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                                ]
+                            }],
+                            temperature=0.1
+                        )
+                        extracted_text = response.choices[0].message.content.strip()
 
-                        if extracted_text.strip():
-                            # 分词
-                            filter_prompt = (
-                                "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
-                                f"目标文本：\n{extracted_text}\n\n"
-                                "请直接返回一个纯JSON格式的字符串数组，例：[\"単語1\", \"単語2\"]，不要输出任何非 JSON 字符。"
-                            )
-                            res = client_ai.chat.completions.create(
-                                model="glm-4-flash",
-                                messages=[{"role": "user", "content": filter_prompt}],
-                                temperature=0.2
-                            )
-                            raw_arr = res.choices[0].message.content.strip()
-                            if raw_arr.startswith("```"):
-                                raw_arr = raw_arr.split("\n", 1)[1].rsplit("\n", 1)[0]
-                            st.session_state.hollow_words = json.loads(raw_arr)
-                            
-                            # 解析完后，自增计数器，下一次用户点击上传时，使用一个崭新的 uploader
-                            st.session_state.uploader_counter += 1
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"树洞解析出错: {e}")
-                        st.session_state.hollow_words = ["解析失败"]
+                    if extracted_text.strip():
+                        filter_prompt = (
+                            "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
+                            f"目标文本：\n{extracted_text}\n\n"
+                            "请直接返回一个纯JSON格式的字符串数组，例：[\"単語1\", \"単語2\"]，不要输出任何非 JSON 字符。"
+                        )
+                        res = client_ai.chat.completions.create(
+                            model="glm-4-flash",
+                            messages=[{"role": "user", "content": filter_prompt}],
+                            temperature=0.2
+                        )
+                        raw_arr = res.choices[0].message.content.strip()
+                        if raw_arr.startswith("```"):
+                            raw_arr = raw_arr.split("\n", 1)[1].rsplit("\n", 1)[0]
+                        st.session_state.hollow_words = json.loads(raw_arr)
+                        
+                        # 解析完成，计数器自增，立即刷新上传控件
                         st.session_state.uploader_counter += 1
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"树洞解析出错: {e}")
+                    st.session_state.hollow_words = ["解析失败"]
+                    st.session_state.uploader_counter += 1
+                    st.rerun()
 
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # 渲染横向排列的单词胶囊
+        # 胶囊按钮矩阵
         if st.session_state.hollow_words:
             st.markdown("<div style='margin-top: 10px;'><span style='font-size:11px; font-weight:bold; color:var(--primary-color);'>💡 点击下方胶囊直接填入捕获终端：</span></div>", unsafe_allow_html=True)
-            
-            # 使用 5 列横向平铺胶囊
             cols = st.columns(5)
             for idx, w in enumerate(st.session_state.hollow_words):
                 col_idx = idx % 5
@@ -369,17 +358,13 @@ with left_col:
 
     # 🌲 生词捕获终端
     st.subheader("🌲 生词捕获终端")
-
     input_word = st.text_input("日语生词 *", value=st.session_state.temp_word)
 
-    # ==========================================
-    # 【唤醒 AI 智能解析】
-    # ==========================================
     if st.button("🪄 唤醒 AI 智能解析填表"):
         if not input_word.strip():
             st.warning("请先输入生词")
         else:
-            with st.spinner("🍃 智能助手正在深度解析中..."):
+            with st.spinner("🍃 智能教学专家正在解析中..."):
                 try:
                     prompt = (
                         "你是一个精通中日双语的日语教学专家。请为以下日语生词进行解析。\n"
@@ -403,7 +388,6 @@ with left_col:
                         raw_text = raw_text.split("\n", 1)[1].rsplit("\n", 1)[0]
                     ai_data = json.loads(raw_text)
 
-                    # 数据安全的放入临时中转变量中
                     st.session_state.temp_word = input_word.strip()
                     st.session_state.temp_furi = ai_data.get("furigana", "")
                     st.session_state.temp_zh = ai_data.get("meaning_zh", "")
@@ -420,7 +404,6 @@ with left_col:
     st.markdown("📋 **属性校对面板**")
     
     with st.form("clean_and_safe_form", clear_on_submit=False):
-        
         col_f, col_z = st.columns(2)
         with col_f:
             furi_val = st.text_input("假名发音", value=st.session_state.temp_furi)
@@ -450,7 +433,7 @@ with left_col:
                 st.session_state.cards.append(new_card)
                 save_db(st.session_state.cards)
                 
-                # 安全地清空中转值
+                # 清空中转状态
                 st.session_state.temp_word = ""
                 st.session_state.temp_furi = ""
                 st.session_state.temp_zh = ""
@@ -462,11 +445,10 @@ with left_col:
                 st.success(f"生词「{input_word}」已成功归档！")
                 st.rerun()
 
-# --- 右栏：原生折叠卡片列表与过滤 ---
+# --- 右栏：卡片检索与状态管理 ---
 with right_col:
     st.subheader("📚 词库检索与复习")
 
-    # 顶层过滤器
     col_filter_t, col_filter_s = st.columns(2)
     with col_filter_t:
         tag_options = ["全部", "日常", "日剧"]
@@ -480,13 +462,10 @@ with right_col:
 
     status_key = "learning" if selected_status == "正在复习" else "mastered"
 
-    # 数据过滤
     filtered_cards = st.session_state.cards
     if selected_tag != "全部":
         filtered_cards = [c for c in filtered_cards if selected_tag in c.get("tags", "")]
     filtered_cards = [c for c in filtered_cards if c.get("status", "learning") == status_key]
-
-    # 按倒序展示
     filtered_cards = filtered_cards[::-1]
 
     if not filtered_cards:
@@ -503,7 +482,6 @@ with right_col:
                 if card.get("example_sentence"):
                     st.markdown(f"**例句情境**：\n\n{card['example_sentence']}")
                 
-                # 操作按键
                 col_btn1, col_btn2, col_btn3 = st.columns([2, 2, 1])
                 with col_btn1:
                     if card["status"] == "learning":
@@ -537,7 +515,7 @@ with right_col:
                         st.rerun()
 
     # ==========================================
-    # 💾 右下角：并排备份与导入控制台（极致美化版）
+    # 💾 右下角：数据同步控制台 (极致美化与动态响应)
     # ==========================================
     st.markdown("<br><hr style='border: 1px dashed #8ba89e; margin: 15px 0;'>", unsafe_allow_html=True)
     st.markdown("<span style='color:#846226; font-weight:bold; font-size:13px; display:block; margin-bottom:10px;'>💾 数据备份与恢复</span>", unsafe_allow_html=True)
@@ -545,7 +523,6 @@ with right_col:
     col_export_btn, col_import_btn = st.columns(2)
     
     with col_export_btn:
-        # 导出 CSV 备份
         if st.session_state.cards:
             df = pd.DataFrame(st.session_state.cards)
             df_export = df.copy()
@@ -561,12 +538,12 @@ with right_col:
             )
             
     with col_import_btn:
-        # 导入 CSV 备份（通过更深的 CSS 隔离完美美化成森林绿按钮）
-        st.markdown("<div class='footer-import-container'>", unsafe_allow_html=True)
+        # 同样使用动态自增 Key 彻底杜绝导入后的锁死和缓存失效问题
+        import_key = f"footer_csv_uploader_{st.session_state.import_uploader_counter}"
         footer_upload = st.file_uploader(
             "选择导入文件", 
             type=["csv"], 
-            key="footer_csv_uploader",
+            key=import_key,
             label_visibility="collapsed"
         )
         if footer_upload is not None:
@@ -596,8 +573,10 @@ with right_col:
                     new_id += 1
                 st.session_state.cards.extend(imported_cards)
                 save_db(st.session_state.cards)
+                st.session_state.import_uploader_counter += 1
                 st.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
                 st.rerun()
             except Exception as e:
                 st.error(f"导入解析失败：{e}")
-        st.markdown("</div>", unsafe_allow_html=True)
+                st.session_state.import_uploader_counter += 1
+                st.rerun()
