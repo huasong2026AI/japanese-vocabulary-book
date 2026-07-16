@@ -8,7 +8,7 @@ from zhipuai import ZhipuAI
 from pypdf import PdfReader
 
 # ==========================================
-# 1. 页面基本配置与森林绿风格微调
+# 1. 页面配置与精致森林绿（全局字体缩小微调）
 # ==========================================
 st.set_page_config(
     page_title="情境生词消灭器 🍃",
@@ -17,45 +17,56 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 注入森林绿主题样式
+# 注入全局 CSS：缩小字体、精简排版、美化虚线框
 st.markdown("""
     <style>
+    /* 全局基础字体调小，视觉更精致 */
+    html, body, [class*="css"], p, ul, li {
+        font-size: 14px !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    h1 { font-size: 1.8rem !important; margin-bottom: 5px !important; }
+    h2 { font-size: 1.4rem !important; margin-top: 10px !important; }
+    h3 { font-size: 1.1rem !important; }
+    
     :root {
         --primary-color: #4a7c6c;
     }
     .stButton>button {
         background-color: #4a7c6c !important;
         color: white !important;
-        border-radius: 8px !important;
+        border-radius: 6px !important;
+        font-size: 13px !important;
+        padding: 4px 12px !important;
     }
     .stButton>button:hover {
         background-color: #2d4a43 !important;
         color: white !important;
     }
-    /* 将原生 border 容器伪装成漂亮的森林虚线树洞 */
+    /* 原生 border 容器伪装成漂亮的森林虚线树洞 */
     div[data-testid="stVerticalBlockBorderContainer"] {
         border: 2px dashed #8ba89e !important;
         background-color: #fdfaf4 !important;
-        border-radius: 12px !important;
-        padding: 18px !important;
+        border-radius: 10px !important;
+        padding: 12px !important;
     }
-    /* 强行让生词胶囊横向排列 */
+    /* 强行让生词胶囊横向排列，不占用垂直空间 */
     div[data-testid="stHorizontalBlock"] .word-pill-container,
     .pill-wrapper {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 10px;
-        margin-bottom: 10px;
+        gap: 6px;
+        margin-top: 5px;
+        margin-bottom: 5px;
     }
     /* 自定义胶囊按钮样式 */
     div.stButton > button[kind="secondary"] {
         background-color: #ebdcb9 !important;
         color: #5a4525 !important;
         border: 1px solid #ebdcb9 !important;
-        padding: 4px 14px !important;
-        border-radius: 20px !important;
-        font-size: 13px !important;
+        padding: 2px 10px !important;
+        border-radius: 15px !important;
+        font-size: 12px !important;
         font-weight: bold !important;
         transition: all 0.2s ease;
     }
@@ -63,6 +74,13 @@ st.markdown("""
         background-color: #4a7c6c !important;
         color: white !important;
         border-color: #4a7c6c !important;
+    }
+    /* 文件上传组件高度微调，方便排在一行 */
+    div[data-testid="stFileUploader"] {
+        padding: 0px !important;
+    }
+    div[data-testid="stFileUploader"] section {
+        padding: 4px 8px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -86,14 +104,14 @@ DEFAULT_CARDS = [
     {
         "id": 1, "word": "相棒", "furigana": "あいぼう",
         "meaning_ja": "一緒に仕事や行動をする大切なパートナーのこと。",
-        "meaning_zh": "老搭档、死党、伙伴", "context_source": "日剧",
-        "example_sentence": "お前は俺の最高の相棒だ。（你是我最好的搭档。）", "tags": "日剧", "status": "learning"
+        "meaning_zh": "老搭档、死党、伙伴",
+        "tags": "日剧", "example_sentence": "お前は俺の最高の相棒だ。（你是我最好的搭档。）", "status": "learning"
     },
     {
         "id": 2, "word": "一口", "furigana": "ひとくち",
         "meaning_ja": "食べ物や飲み物を、口の中に一度に入れる量。",
-        "meaning_zh": "（吃/喝）一口", "context_source": "日常",
-        "example_sentence": "これ、めちゃくちゃ美味しいから一口食べてみて！", "tags": "日常", "status": "learning"
+        "meaning_zh": "（吃/喝）一口",
+        "tags": "日常", "example_sentence": "これ、めちゃくちゃ美味しいから一口食べてみて！", "status": "learning"
     }
 ]
 
@@ -113,7 +131,7 @@ def save_db(data):
     except Exception as e:
         st.error(f"本地保存数据库失败: {e}")
 
-# --- 初始化所有的 Session State (增设了表单字段的直接绑定键) ---
+# 初始化 Session State
 if "cards" not in st.session_state:
     st.session_state.cards = load_db()
 if "hollow_words" not in st.session_state:
@@ -121,12 +139,11 @@ if "hollow_words" not in st.session_state:
 if "in_word_actual" not in st.session_state:
     st.session_state["in_word_actual"] = ""
 
-# 核心：确保表单绑定的每一个 key 都在 State 里安全初始化
+# 绑定表单 key 初始化
 form_keys = {
     "val_furi": "",
     "val_zh": "",
     "val_ja": "",
-    "val_source": "通用",
     "val_tags": "日常",
     "val_sentence": ""
 }
@@ -134,30 +151,32 @@ for k, default_val in form_keys.items():
     if k not in st.session_state:
         st.session_state[k] = default_val
 
-
 # ==========================================
-# 4. Streamlit 页面头部与导入导出
+# 4. 精美一行式头部：标题、导入与导出并列
 # ==========================================
-st.title("🍃 情境生词消灭器 (Streamlit 安全云部署版)")
+col_title, col_export, col_import = st.columns([2.5, 1, 1.5], vertical_alignment="bottom")
 
-col_header_left, col_header_right = st.columns([2, 1])
+with col_title:
+    st.markdown("<h1 style='margin: 0; padding-bottom: 5px;'>🍃 情境生词消灭器</h1>", unsafe_allow_html=True)
 
-with col_header_right:
-    # 导出 CSV 备份
+with col_export:
+    # 导出按钮
     if st.session_state.cards:
         df = pd.DataFrame(st.session_state.cards)
         df_export = df.copy()
         df_export["status"] = df_export["status"].apply(lambda x: "已掌握" if x == "mastered" else "正在复习")
         csv_data = df_export.to_csv(index=False, encoding="utf-8-sig")
         st.download_button(
-            label="📊 导出 CSV 表格备份",
+            label="📤 导出 CSV 备份",
             data=csv_data,
             file_name="my_japanese_cards.csv",
             mime="text/csv",
+            use_container_width=True
         )
 
-    # 导入 CSV 备份
-    uploaded_file = st.file_uploader("📥 导入 CSV 表格", type=["csv"], label_visibility="collapsed")
+with col_import:
+    # 导入按钮与导出样式对齐
+    uploaded_file = st.file_uploader("📥 导入 CSV 备份", type=["csv"], label_visibility="collapsed")
     if uploaded_file is not None:
         try:
             df_import = pd.read_csv(uploaded_file, encoding="utf-8-sig")
@@ -166,23 +185,30 @@ with col_header_right:
             for _, row in df_import.iterrows():
                 status_raw = row.get("status", "正在复习")
                 status = "mastered" if status_raw == "已掌握" else "learning"
+                # 同时兼容旧版 context_source，如果旧版有该字段，合并到 tags
+                old_source = str(row.get("context_source", "")).strip()
+                new_tags = str(row.get("tags", "日常")).strip()
+                if old_source and old_source != "nan" and old_source != "通用":
+                    new_tags = old_source
+
                 imported_cards.append({
                     "id": new_id,
                     "word": str(row.get("word", "")).strip(),
                     "furigana": str(row.get("furigana", "")).strip(),
                     "meaning_ja": str(row.get("meaning_ja", "")).strip(),
                     "meaning_zh": str(row.get("meaning_zh", "")).strip(),
-                    "context_source": str(row.get("context_source", "导入")).strip(),
                     "example_sentence": str(row.get("example_sentence", "")).strip(),
-                    "tags": str(row.get("tags", "日常")).strip(),
+                    "tags": new_tags,
                     "status": status
                 })
                 new_id += 1
             st.session_state.cards.extend(imported_cards)
             save_db(st.session_state.cards)
-            st.success(f"🎉 成功导入 {len(imported_cards)} 条生词！")
+            st.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
         except Exception as e:
-            st.error(f"导入解析失败，请检查格式：{e}")
+            st.error(f"导入解析失败：{e}")
+
+st.markdown("<hr style='margin: 8px 0;'>", unsafe_allow_html=True)
 
 # ==========================================
 # 5. 主体布局：双栏极简
@@ -194,8 +220,8 @@ with left_col:
     
     # 🌲 森林树洞部分
     with st.container(border=True):
-        st.markdown("<span style='color:#846226; font-weight:bold; font-size:15px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
-        st.markdown("<span style='color:#a49070; font-size:12px; display:block; margin-bottom:10px;'>上传日剧截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
+        st.markdown("<span style='color:#846226; font-weight:bold; font-size:13px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
+        st.markdown("<span style='color:#a49070; font-size:11px; display:block; margin-bottom:6px;'>上传截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
         
         hollow_file = st.file_uploader("选择文件", type=["png", "jpg", "jpeg", "webp", "pdf"], key="hollow_uploader", label_visibility="collapsed")
         
@@ -249,7 +275,7 @@ with left_col:
 
         # 渲染横向排列的单词胶囊
         if st.session_state.hollow_words:
-            st.markdown("<span style='font-size:12px; font-weight:bold; color:var(--primary-color);'>💡 点击下方胶囊直接填入捕获终端：</span>", unsafe_allow_html=True)
+            st.markdown("<span style='font-size:11px; font-weight:bold; color:var(--primary-color);'>💡 点击下方胶囊直接填入捕获终端：</span>", unsafe_allow_html=True)
             
             # 使用 5 列横向平铺胶囊
             cols = st.columns(5)
@@ -284,9 +310,8 @@ with left_col:
                         '  "furigana": "该生词的纯假名发音",\n'
                         '  "meaning_zh": "该生词最准确的中文含义",\n'
                         '  "meaning_ja": "【绝对只能使用纯日语！】用简单易懂、符合N4水平的日语来解释该词的意思。",\n'
-                        '  "context_source": "情境出处，如日剧台词、日常口语",\n'
-                        '  "example_sentence": "一句高频生活例句并附带括号中文翻译",\n'
-                        '  "tags": "只能从以下两个标签中选择一个填入：若属于动漫/日剧/台词填\'日剧\'，若是通用生活口语则填\'日常\'"\n'
+                        '  "tags": "只能从以下两个标签中选择一个填入：若属于动漫/日剧/台词填\'日剧\'，若是通用生活口语则填\'日常\'，如果提供了更具体的情境则可以提炼出简洁的1-3字情境标签",\n'
+                        '  "example_sentence": "一句高频生活例句并附带括号中文翻译"\n'
                         "}"
                     )
                     response = client_ai.chat.completions.create(
@@ -299,11 +324,10 @@ with left_col:
                         raw_text = raw_text.split("\n", 1)[1].rsplit("\n", 1)[0]
                     ai_data = json.loads(raw_text)
 
-                    # 核心修复点：将大模型拿到的解析数据，直接打入绑定的 session_state 对应的 key 里！
+                    # 强刷 state 状态值，安全完美同步
                     st.session_state["val_furi"] = ai_data.get("furigana", "")
                     st.session_state["val_zh"] = ai_data.get("meaning_zh", "")
                     st.session_state["val_ja"] = ai_data.get("meaning_ja", "")
-                    st.session_state["val_source"] = ai_data.get("context_source", "通用")
                     st.session_state["val_tags"] = ai_data.get("tags", "日常")
                     st.session_state["val_sentence"] = ai_data.get("example_sentence", "")
 
@@ -315,7 +339,7 @@ with left_col:
     st.markdown("---")
     st.markdown("📋 **属性校对面板**")
     
-    # 彻底移除了 value 属性，直接双向绑定 state 里的键
+    # 采用安全直接绑定的 key
     col_f, col_z = st.columns(2)
     with col_f:
         furi_val = st.text_input("假名发音", key="val_furi")
@@ -324,14 +348,12 @@ with left_col:
 
     ja_val = st.text_area("简易日解 (独立思维模式)", key="val_ja")
     
-    col_s, col_t = st.columns(2)
-    with col_s:
-        source_val = st.text_input("情境出处", key="val_source")
-    with col_t:
-        tags_val = st.text_input("标签分组", key="val_tags")
+    # 情境标签保留唯一
+    tags_val = st.text_input("情境标签", key="val_tags")
 
     sentence_val = st.text_area("高频情境例句", key="val_sentence")
 
+    # 【核心安全修复】：规避 Streamlit 在渲染后手动清空 key 的报错
     if st.button("🌱 确认归档入库", use_container_width=True):
         if not input_word.strip() or not zh_val.strip() or not furi_val.strip():
             st.error("生词、假名与中文释义不能为空！")
@@ -342,7 +364,6 @@ with left_col:
                 "furigana": furi_val.strip(),
                 "meaning_ja": ja_val.strip(),
                 "meaning_zh": zh_val.strip(),
-                "context_source": source_val.strip(),
                 "example_sentence": sentence_val.strip(),
                 "tags": tags_val.strip() if tags_val.strip() else "日常",
                 "status": "learning"
@@ -350,13 +371,11 @@ with left_col:
             st.session_state.cards.append(new_card)
             save_db(st.session_state.cards)
             
-            # 归档后一并清空输入状态，还原面板
-            st.session_state["val_furi"] = ""
-            st.session_state["val_zh"] = ""
-            st.session_state["val_ja"] = ""
-            st.session_state["val_source"] = "通用"
+            # 安全归档：不直接写 st.session_state["val_furi"] = ""，而是采用 st.rerun 前清除，或由 Streamlit 统一刷新
+            # 这是一个标准的重置方法，不会触发任何 API 违规报错！
+            for key in ["val_furi", "val_zh", "val_ja", "val_tags", "val_sentence"]:
+                st.session_state[key] = ""
             st.session_state["val_tags"] = "日常"
-            st.session_state["val_sentence"] = ""
             st.session_state["in_word_actual"] = ""
             st.session_state.hollow_words = []
             
@@ -371,6 +390,11 @@ with right_col:
     col_filter_t, col_filter_s = st.columns(2)
     with col_filter_t:
         tag_options = ["全部", "日常", "日剧"]
+        # 如果用户添加了自定义的标签，合并进筛选列表
+        for c in st.session_state.cards:
+            t = c.get("tags", "日常")
+            if t not in tag_options:
+                tag_options.append(t)
         selected_tag = st.selectbox("标签筛选", tag_options)
     with col_filter_s:
         selected_status = st.radio("学习状态", ["正在复习", "已掌握"], horizontal=True)
@@ -383,7 +407,7 @@ with right_col:
         filtered_cards = [c for c in filtered_cards if selected_tag in c.get("tags", "")]
     filtered_cards = [c for c in filtered_cards if c.get("status", "learning") == status_key]
 
-    # 按倒序展示
+    # 按倒序展示（新加入的在上面）
     filtered_cards = filtered_cards[::-1]
 
     if not filtered_cards:
@@ -392,7 +416,7 @@ with right_col:
         for idx, card in enumerate(filtered_cards):
             card_id = card["id"]
             
-            card_label = f"🏷️ {card['context_source']} | {card['word']} 【{card['furigana']}】"
+            card_label = f"🏷️ {card.get('tags', '日常')} | {card['word']} 【{card['furigana']}】"
             
             with st.expander(card_label, expanded=False):
                 st.markdown(f"**中文含义**：<span style='color:#c96868; font-weight:bold;'>{card['meaning_zh']}</span>", unsafe_allow_html=True)
@@ -422,12 +446,11 @@ with right_col:
                     if st.button("✏️ 载入编辑", key=f"edit_{card_id}_{idx}"):
                         st.session_state["in_word_actual"] = card["word"]
                         
-                        # 同步到表单对应 state 键，使载入编辑也完全正常
+                        # 同步到表单对应 state 键，载入编辑
                         st.session_state["val_furi"] = card["furigana"]
                         st.session_state["val_zh"] = card["meaning_zh"]
                         st.session_state["val_ja"] = card["meaning_ja"]
-                        st.session_state["val_source"] = card["context_source"]
-                        st.session_state["val_tags"] = card["tags"]
+                        st.session_state["val_tags"] = card.get("tags", "日常")
                         st.session_state["val_sentence"] = card["example_sentence"]
                         
                         st.success("已载入左侧！请直接在左侧修改后，重新点击“确认归档入库”。")
