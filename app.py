@@ -14,7 +14,7 @@ st.set_page_config(
     page_title="情境生词消灭器 🍃",
     page_icon="🍃",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed" # 手机端默认收起侧边栏，保持主页清爽
 )
 
 # 注入全局 CSS：缩小字体、精简排版、美化虚线框、统一按钮样式
@@ -33,10 +33,9 @@ st.markdown("""
         --primary-color: #4a7c6c;
     }
     
-    /* 统一所有主要按钮（导出、导入、表单提交等）的底色与样式 */
+    /* 统一所有主要按钮（导出、表单提交等）的底色与样式 */
     .stButton>button, 
-    .stDownloadButton>button,
-    div[data-testid="stFileUploader"] > section > button {
+    .stDownloadButton>button {
         background-color: #4a7c6c !important;
         color: white !important;
         border-radius: 6px !important;
@@ -53,8 +52,7 @@ st.markdown("""
     }
     
     .stButton>button:hover, 
-    .stDownloadButton>button:hover,
-    div[data-testid="stFileUploader"] > section > button:hover {
+    .stDownloadButton>button:hover {
         background-color: #2d4a43 !important;
         border-color: #2d4a43 !important;
         color: white !important;
@@ -74,7 +72,7 @@ st.markdown("""
         padding: 12px !important;
     }
     
-    /* 极致美化树洞和头部的原生 Upload 组件 */
+    /* 极致美化树洞的 Upload 组件 */
     div[data-testid="stFileUploader"] {
         background-color: transparent !important;
         border: none !important;
@@ -91,21 +89,6 @@ st.markdown("""
     }
     div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] > div {
         display: none !important; /* 隐藏拖拽文字提示 */
-    }
-    
-    /* 让头部导入按钮在视觉上看起来和导出完全是一个模子里出来的 */
-    .header-import-container div[data-testid="stFileUploader"] button {
-        background-color: #4a7c6c !important;
-        color: white !important;
-        border: 1px solid #4a7c6c !important;
-        height: 38px !important;
-        font-size: 13px !important;
-        border-radius: 6px !important;
-        width: 100% !important;
-    }
-    .header-import-container div[data-testid="stFileUploader"] button:hover {
-        background-color: #2d4a43 !important;
-        border-color: #2d4a43 !important;
     }
 
     /* 树洞里的 Upload 按钮美化得小巧一点 */
@@ -177,7 +160,7 @@ DEFAULT_CARDS = [
         "status": "learning"
     },
     {
-        "id": 2, "word": "一口", "furigana": "ひとくch",
+        "id": 2, "word": "一口", "furigana": "ひとくち",
         "meaning_ja": "食べ物や飲み物を、口の中に一度に入れる量。",
         "meaning_zh": "（吃/喝）一口",
         "tags": "日常", 
@@ -226,15 +209,13 @@ if "temp_sentence" not in st.session_state:
     st.session_state.temp_sentence = ""
 
 # ==========================================
-# 4. 一行式头部：标题、导入与导出完美一模一样
+# 4. 侧边栏（Sidebar）：统一备份与恢复系统
 # ==========================================
-col_title, col_export, col_import = st.columns([2.5, 1, 1], vertical_alignment="bottom")
-
-with col_title:
-    st.markdown("<h1 style='margin: 0; padding-bottom: 5px;'>🍃 情境生词消灭器</h1>", unsafe_allow_html=True)
-
-with col_export:
-    # 导出按钮
+with st.sidebar:
+    st.markdown("### ⚙️ 备份与恢复系统")
+    st.markdown("---")
+    
+    # 导出 CSV
     if st.session_state.cards:
         df = pd.DataFrame(st.session_state.cards)
         df_export = df.copy()
@@ -247,15 +228,14 @@ with col_export:
             mime="text/csv",
             use_container_width=True
         )
-
-with col_import:
-    # 完美重构：不再使用 Popover 组件，直接展示原生 Upload 并通过 CSS 彻底改造成扁平、无下划箭头的极简按钮！
-    st.markdown("<div class='header-import-container'>", unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # 导入 CSV（原生的完整组件，不强制隐藏内部结构，安全可靠，无任何多余箭头，点击即可导入）
     header_upload = st.file_uploader(
         "📥 导入 CSV 备份", 
         type=["csv"], 
-        key="header_csv_uploader", 
-        label_visibility="collapsed"
+        key="header_csv_uploader"
     )
     if header_upload is not None:
         try:
@@ -284,16 +264,19 @@ with col_import:
                 new_id += 1
             st.session_state.cards.extend(imported_cards)
             save_db(st.session_state.cards)
-            st.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
+            st.sidebar.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
             st.rerun()
         except Exception as e:
-            st.error(f"导入解析失败：{e}")
-    st.markdown("</div>", unsafe_allow_html=True)
+            st.sidebar.error(f"导入解析失败：{e}")
 
+# ==========================================
+# 5. 主页面头部：彻底净化
+# ==========================================
+st.markdown("<h1 style='margin: 0; padding-bottom: 5px;'>🍃 情境生词消灭器</h1>", unsafe_allow_html=True)
 st.markdown("<hr style='margin: 8px 0;'>", unsafe_allow_html=True)
 
 # ==========================================
-# 5. 主体布局：双栏极简
+# 6. 主体布局：双栏极简
 # ==========================================
 left_col, right_col = st.columns([1, 1])
 
@@ -392,7 +375,7 @@ with left_col:
     input_word = st.text_input("日语生词 *", value=st.session_state.temp_word)
 
     # ==========================================
-    # 【唤醒 AI 智能解析】：隐藏智谱大模型字样，直接解析
+    # 【唤醒 AI 智能解析】
     # ==========================================
     if st.button("🪄 唤醒 AI 智能解析填表"):
         if not input_word.strip():
