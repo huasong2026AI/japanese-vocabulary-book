@@ -8,7 +8,7 @@ from zhipuai import ZhipuAI
 from pypdf import PdfReader
 
 # ==========================================
-# 1. 页面配置与精致森林绿（全局字体缩小微调）
+# 1. 页面配置与精致森林绿样式（全局字体缩小）
 # ==========================================
 st.set_page_config(
     page_title="情境生词消灭器 🍃",
@@ -56,7 +56,7 @@ st.markdown("""
         color: white !important;
     }
     
-    /* 移除表单的原生粗框，改用干净的布局 */
+    /* 移除表单的原生粗框 */
     form[data-testid="stForm"] {
         border: none !important;
         padding: 0px !important;
@@ -69,7 +69,7 @@ st.markdown("""
         border-radius: 10px !important;
         padding: 12px !important;
     }
-    /* 强行让生词胶囊横向排列，不占用垂直空间 */
+    /* 生词胶囊横向排列 */
     div[data-testid="stHorizontalBlock"] .word-pill-container,
     .pill-wrapper {
         display: flex;
@@ -145,16 +145,28 @@ def save_db(data):
     except Exception as e:
         st.error(f"本地保存数据库失败: {e}")
 
-# 初始化 Session State
+# 初始化所有的非组件绑定状态（用临时状态中转，100%避开组件强制绑定的写入报错）
 if "cards" not in st.session_state:
     st.session_state.cards = load_db()
 if "hollow_words" not in st.session_state:
     st.session_state.hollow_words = []
-if "in_word_actual" not in st.session_state:
-    st.session_state["in_word_actual"] = ""
+
+# 安全的临时字段中转（用来传递载入编辑或AI解析的数据，不需要直接修改输入框的 key）
+if "temp_word" not in st.session_state:
+    st.session_state.temp_word = ""
+if "temp_furi" not in st.session_state:
+    st.session_state.temp_furi = ""
+if "temp_zh" not in st.session_state:
+    st.session_state.temp_zh = ""
+if "temp_ja" not in st.session_state:
+    st.session_state.temp_ja = ""
+if "temp_tags" not in st.session_state:
+    st.session_state.temp_tags = "日常"
+if "temp_sentence" not in st.session_state:
+    st.session_state.temp_sentence = ""
 
 # ==========================================
-# 4. 一行式头部：标题、导入与导出完美对齐且精致
+# 4. 一行式头部：标题、导入与导出完美对齐
 # ==========================================
 col_title, col_export, col_import = st.columns([2.5, 1, 1], vertical_alignment="bottom")
 
@@ -177,7 +189,7 @@ with col_export:
         )
 
 with col_import:
-    # 巧妙利用 Popover（气泡窗口）将上传控件隐藏在精致的导入按钮中，样式与导出完全对称一致！
+    # 使用 Popover 实现美观对齐的隐藏式导入窗口
     with st.popover("📥 导入 CSV 备份", use_container_width=True):
         st.markdown("<small style='color: gray;'>上传导出的 CSV 备份文件恢复数据：</small>", unsafe_allow_html=True)
         uploaded_file = st.file_uploader("选择 CSV 文件", type=["csv"], label_visibility="collapsed")
@@ -190,7 +202,6 @@ with col_import:
                     status_raw = row.get("status", "正在复习")
                     status = "mastered" if status_raw == "已掌握" else "learning"
                     
-                    # 兼容可能存在的旧版数据字段
                     old_source = str(row.get("context_source", "")).strip()
                     new_tags = str(row.get("tags", "日常")).strip()
                     if old_source and old_source != "nan" and old_source != "通用":
@@ -264,7 +275,7 @@ with left_col:
                             filter_prompt = (
                                 "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
                                 f"目标文本：\n{extracted_text}\n\n"
-                                "请直接返回一个纯JSON格式的字符串数组，例：[\"単語1\", \"単語2\"]，不要输出任何非 JSON 字符。"
+                                "请直接返回一个纯JSON格式 of 字符串数组，例：[\"単語1\", \"単語2\"]，不要输出任何非 JSON 字符。"
                             )
                             res = client_ai.chat.completions.create(
                                 model="glm-4-flash",
@@ -289,7 +300,8 @@ with left_col:
                 col_idx = idx % 5
                 with cols[col_idx]:
                     if st.button(w, key=f"pill_{w}_{idx}", use_container_width=True):
-                        st.session_state["in_word_actual"] = w
+                        # 安全：仅给临时中转赋值，不污染组件绑定的状态
+                        st.session_state.temp_word = w
                         st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -297,9 +309,9 @@ with left_col:
     # 🌲 生词捕获终端
     st.subheader("🌲 生词捕获终端")
 
-    # 双向绑定生词（在表单外侧，支持胶囊一键载入和AI自动更新）
-    input_word = st.text_input("日语生词 *", key="in_word_actual")
-    input_hint = st.text_area("当前情境台词 (选填)", placeholder="贴入当前句子...", key="in_hint")
+    # 彻底杜绝组件 Key 冲突：不设 key 属性，仅用 value 来控制和初始化它的值
+    input_word = st.text_input("日语生词 *", value=st.session_state.temp_word)
+    input_hint = st.text_area("当前情境台词 (选填)", placeholder="贴入当前句子...")
 
     if st.button("🪄 唤醒 AI 智能解析填表"):
         if not input_word.strip():
@@ -330,36 +342,35 @@ with left_col:
                         raw_text = raw_text.split("\n", 1)[1].rsplit("\n", 1)[0]
                     ai_data = json.loads(raw_text)
 
-                    # 安全设置值
-                    st.session_state["val_furi"] = ai_data.get("furigana", "")
-                    st.session_state["val_zh"] = ai_data.get("meaning_zh", "")
-                    st.session_state["val_ja"] = ai_data.get("meaning_ja", "")
-                    st.session_state["val_tags"] = ai_data.get("tags", "日常")
-                    st.session_state["val_sentence"] = ai_data.get("example_sentence", "")
+                    # 数据安全的放入临时中转变量中
+                    st.session_state.temp_word = input_word.strip()
+                    st.session_state.temp_furi = ai_data.get("furigana", "")
+                    st.session_state.temp_zh = ai_data.get("meaning_zh", "")
+                    st.session_state.temp_ja = ai_data.get("meaning_ja", "")
+                    st.session_state.temp_tags = ai_data.get("tags", "日常")
+                    st.session_state.temp_sentence = ai_data.get("example_sentence", "")
 
                     st.success("✨ 解析成功！数据已同步至下方的属性面板，请核对。")
+                    st.rerun() # 触发一次重绘，自动将最新值填入输入框，100%不崩！
                 except Exception as e:
                     st.error(f"大模型通讯或解析失败: {e}")
 
     st.markdown("---")
     st.markdown("📋 **属性校对面板**")
     
-    # ==========================================
-    # 【核心安全修复】：使用 st.form 彻底避开 Session State 写入锁限制！
-    # ==========================================
-    with st.form("edit_and_submit_form", clear_on_submit=True):
+    # 完美的表单处理，彻底不使用 state 内部冲突的绑定 key
+    with st.form("clean_and_safe_form", clear_on_submit=False):
         
         col_f, col_z = st.columns(2)
         with col_f:
-            furi_val = st.text_input("假名发音", key="val_furi")
+            furi_val = st.text_input("假名发音", value=st.session_state.temp_furi)
         with col_z:
-            zh_val = st.text_input("中文释义", key="val_zh")
+            zh_val = st.text_input("中文释义", value=st.session_state.temp_zh)
 
-        ja_val = st.text_area("简易日解 (独立思维模式)", key="val_ja")
-        tags_val = st.text_input("情境标签", key="val_tags")
-        sentence_val = st.text_area("高频情境例句", key="val_sentence")
+        ja_val = st.text_area("简易日解 (独立思维模式)", value=st.session_state.temp_ja)
+        tags_val = st.text_input("情境标签", value=st.session_state.temp_tags)
+        sentence_val = st.text_area("高频情境例句", value=st.session_state.temp_sentence)
 
-        # 表单提交按钮
         submit_btn = st.form_submit_button("🌱 确认归档入库", use_container_width=True)
         
         if submit_btn:
@@ -379,8 +390,13 @@ with left_col:
                 st.session_state.cards.append(new_card)
                 save_db(st.session_state.cards)
                 
-                # 清除输入框外的状态
-                st.session_state["in_word_actual"] = ""
+                # 安全地清空中转值
+                st.session_state.temp_word = ""
+                st.session_state.temp_furi = ""
+                st.session_state.temp_zh = ""
+                st.session_state.temp_ja = ""
+                st.session_state.temp_tags = "日常"
+                st.session_state.temp_sentence = ""
                 st.session_state.hollow_words = []
                 
                 st.success(f"生词「{input_word}」已成功归档！")
@@ -446,12 +462,13 @@ with right_col:
                             st.rerun()
                 with col_btn2:
                     if st.button("✏️ 载入编辑", key=f"edit_{card_id}_{idx}"):
-                        st.session_state["in_word_actual"] = card["word"]
-                        st.session_state["val_furi"] = card["furigana"]
-                        st.session_state["val_zh"] = card["meaning_zh"]
-                        st.session_state["val_ja"] = card["meaning_ja"]
-                        st.session_state["val_tags"] = card.get("tags", "日常")
-                        st.session_state["val_sentence"] = card["example_sentence"]
+                        # 载入时只对安全的临时变量赋值，再次触发 rerun 让输入框自然显示数据
+                        st.session_state.temp_word = card["word"]
+                        st.session_state.temp_furi = card["furigana"]
+                        st.session_state.temp_zh = card["meaning_zh"]
+                        st.session_state.temp_ja = card["meaning_ja"]
+                        st.session_state.temp_tags = card.get("tags", "日常")
+                        st.session_state.temp_sentence = card["example_sentence"]
                         st.rerun()
                 with col_btn3:
                     if st.button("🗑️", key=f"del_{card_id}_{idx}"):
