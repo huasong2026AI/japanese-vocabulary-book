@@ -1,166 +1,27 @@
-import streamlit as st
-import json
 import os
+import json
+import csv
 import io
 import base64
-import pandas as pd
-from zhipuai import ZhipuAI
+import uvicorn
+from zhipuai import ZhipuAI  # 引入智谱官方SDK
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel
+from typing import Optional
 from pypdf import PdfReader
 
-# ==========================================
-# 1. 页面配置与精致森林绿样式（全局字体缩小）
-# ==========================================
-st.set_page_config(
-    page_title="情境生词消灭器 🍃",
-    page_icon="🍃",
-    layout="wide",
-)
-
-# 注入全局 CSS：缩小字体、精简排版、美化虚线框、统一按钮样式
-st.markdown("""
-    <style>
-    /* 全局基础字体调小，视觉更精致 */
-    html, body, [class*="css"], p, ul, li {
-        font-size: 14px !important;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    }
-    h1 { font-size: 1.8rem !important; margin-bottom: 5px !important; }
-    h2 { font-size: 1.4rem !important; margin-top: 10px !important; }
-    h3 { font-size: 1.1rem !important; }
-    
-    :root {
-        --primary-color: #4a7c6c;
-    }
-    
-    /* 统一所有主要按钮（导出、表单提交等）的底色与样式 */
-    .stButton>button, 
-    .stDownloadButton>button {
-        background-color: #4a7c6c !important;
-        color: white !important;
-        border-radius: 6px !important;
-        font-size: 13px !important;
-        padding: 4px 12px !important;
-        border: 1px solid #4a7c6c !important;
-        height: 38px !important;
-        line-height: 24px !important;
-        box-sizing: border-box !important;
-        width: 100% !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
-    
-    .stButton>button:hover, 
-    .stDownloadButton>button:hover {
-        background-color: #2d4a43 !important;
-        border-color: #2d4a43 !important;
-        color: white !important;
-    }
-    
-    /* 移除表单的原生粗框 */
-    form[data-testid="stForm"] {
-        border: none !important;
-        padding: 0px !important;
-    }
-
-    /* 原生 border 容器伪装成漂亮的森林虚线树洞 */
-    div[data-testid="stVerticalBlockBorderContainer"] {
-        border: 2px dashed #8ba89e !important;
-        background-color: #fdfaf4 !important;
-        border-radius: 10px !important;
-        padding: 12px !important;
-    }
-    
-    /* 极致美化树洞的 Upload 组件 */
-    div[data-testid="stFileUploader"] {
-        background-color: transparent !important;
-        border: none !important;
-        padding: 0px !important;
-    }
-    /* 隐藏上传组件自带的各种多余提示和拖拽区，只留一个干净的按钮 */
-    div[data-testid="stFileUploader"] section {
-        padding: 0px !important;
-    }
-    div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
-        padding: 0px !important;
-        border: none !important;
-        background: transparent !important;
-    }
-    div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] > div {
-        display: none !important; /* 隐藏拖拽文字提示 */
-    }
-
-    /* 树洞里的 Upload 按钮美化得小巧一点 */
-    .hollow-container div[data-testid="stFileUploader"] button {
-        background-color: #8ba89e !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 4px !important;
-        padding: 2px 10px !important;
-        font-size: 12px !important;
-        height: 30px !important;
-    }
-    .hollow-container div[data-testid="stFileUploader"] button:hover {
-        background-color: #4a7c6c !important;
-    }
-
-    /* 底部导入按钮的外观改造成和导出完全一致 */
-    .footer-import-container div[data-testid="stFileUploader"] button {
-        background-color: #4a7c6c !important;
-        color: white !important;
-        border: 1px solid #4a7c6c !important;
-        height: 38px !important;
-        font-size: 13px !important;
-        border-radius: 6px !important;
-        width: 100% !important;
-    }
-    .footer-import-container div[data-testid="stFileUploader"] button:hover {
-        background-color: #2d4a43 !important;
-        border-color: #2d4a43 !important;
-    }
-
-    /* 生词胶囊横向排列 */
-    div[data-testid="stHorizontalBlock"] .word-pill-container,
-    .pill-wrapper {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 5px;
-        margin-bottom: 5px;
-    }
-    /* 自定义胶囊按钮样式 */
-    div.stButton > button[kind="secondary"] {
-        background-color: #ebdcb9 !important;
-        color: #5a4525 !important;
-        border: 1px solid #ebdcb9 !important;
-        padding: 2px 10px !important;
-        border-radius: 15px !important;
-        font-size: 12px !important;
-        font-weight: bold !important;
-        height: auto !important;
-        line-height: 1.2 !important;
-        transition: all 0.2s ease;
-    }
-    div.stButton > button[kind="secondary"]:hover {
-        background-color: #4a7c6c !important;
-        color: white !important;
-        border-color: #4a7c6c !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
+app = FastAPI(title="情境生词消灭器-标准生产版")
 
 # ==========================================
-# 2. 安全读取 Streamlit Secrets (不泄露 Key)
+# 1. 智谱 AI API Key 核心防护层
 # ==========================================
-try:
-    ZHIPU_API_KEY = st.secrets["ZHIPU_API_KEY"]
-    client_ai = ZhipuAI(api_key=ZHIPU_API_KEY)
-except Exception as e:
-    st.error("⚠️ 未检测到 ZHIPU_API_KEY！请确保在 Streamlit Advanced Settings -> Secrets 中正确配置了该秘钥。")
-    st.stop()
+RAW_KEY = "f365bebeb4714f7ba2489d0e188042e1.hOxdMA3OKJgwHiqJ"
+ZHIPU_API_KEY = RAW_KEY.replace("[", "").replace("]", "").split("(")[0].strip()
+client_ai = ZhipuAI(api_key=ZHIPU_API_KEY)
 
 # ==========================================
-# 3. 数据持久化逻辑（JSON）
+# 2. 本地持久化数据中心
 # ==========================================
 DB_FILE = "cards_db.json"
 
@@ -168,391 +29,656 @@ DEFAULT_CARDS = [
     {
         "id": 1, "word": "相棒", "furigana": "あいぼう",
         "meaning_ja": "一緒に仕事や行動をする大切なパートナーのこと。",
-        "meaning_zh": "老搭档、死党、伙伴",
-        "tags": "日剧", 
-        "example_sentence": "1. お前は俺の最高の相棒だ。（你是我最好的搭档。）\n2. 相棒と一緒に新しいプロジェクトを始める。（和老搭档一起开始新项目。）\n3. 彼は私の仕事上の相棒です。（他是我的工作伙伴。）", 
-        "status": "learning"
+        "meaning_zh": "老搭档、死党、伙伴", "context_source": "日剧",
+        "example_sentence": "お前は俺的最高の相棒だ。（你是我最好的搭档。）", "tags": "日剧", "status": "learning"
     },
     {
         "id": 2, "word": "一口", "furigana": "ひとくち",
         "meaning_ja": "食べ物や飲み物を、口の中に一度に入れる量。",
-        "meaning_zh": "（吃/喝）一口",
-        "tags": "日常", 
-        "example_sentence": "1. これ、めちゃくちゃ美味しいから一口食べてみて！（这个超好吃，你吃一口试试！）\n2. ビールを一口飲む。（喝了一口啤酒。）\n3. 一口サイズのおにぎりを作る。（制作一口大小的饭团。）", 
-        "status": "learning"
+        "meaning_zh": "（吃/喝）一口", "context_source": "日常",
+        "example_sentence": "これ、めちゃくちゃ美味しいから一口食べてみて！", "tags": "日常", "status": "learning"
     }
 ]
 
 def load_db():
-    if os.path.exists(DB_FILE) and os.path.getsize(DB_FILE) > 5:
+    if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            pass
+                data = json.load(f)
+                if isinstance(data, list) and len(data) > 0:
+                    return data
+        except Exception as e:
+            print(f"读取数据库文件失败，切换到默认数据: {str(e)}")
+    
+    # 文件不存在或解析失败时，初始化默认数据落盘
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_CARDS, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"初始化数据库文件失败: {str(e)}")
     return DEFAULT_CARDS
+
 
 def save_db(data):
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
     except Exception as e:
-        st.error(f"本地保存数据库失败: {e}")
+        print(f"保存数据库失败: {str(e)}")
 
-# 初始化所有的非组件绑定状态
-if "cards" not in st.session_state:
-    st.session_state.cards = load_db()
-if "hollow_words" not in st.session_state:
-    st.session_state.hollow_words = []
-# 用于重置树洞 Upload 状态的计数器 key
-if "uploader_counter" not in st.session_state:
-    st.session_state.uploader_counter = 0
 
-# 安全的临时字段中转
-if "temp_word" not in st.session_state:
-    st.session_state.temp_word = ""
-if "temp_furi" not in st.session_state:
-    st.session_state.temp_furi = ""
-if "temp_zh" not in st.session_state:
-    st.session_state.temp_zh = ""
-if "temp_ja" not in st.session_state:
-    st.session_state.temp_ja = ""
-if "temp_tags" not in st.session_state:
-    st.session_state.temp_tags = "日常"
-if "temp_sentence" not in st.session_state:
-    st.session_state.temp_sentence = ""
+# 服务启动时一次性加载到内存
+db_cards = load_db()
+
 
 # ==========================================
-# 4. 主页面头部：彻底净化
+# 3. 数据交互模型
 # ==========================================
-st.markdown("<h1 style='margin: 0; padding-bottom: 5px;'>🍃 情境生词消灭器</h1>", unsafe_allow_html=True)
-st.markdown("<hr style='margin: 8px 0;'>", unsafe_allow_html=True)
+class CardItem(BaseModel):
+    id: Optional[int] = None
+    word: str
+    furigana: str
+    meaning_ja: Optional[str] = ""
+    meaning_zh: str
+    context_source: str
+    example_sentence: str
+    tags: str
+    status: Optional[str] = "learning"
+
+
+class AIRequest(BaseModel):
+    word: str
+    hint_sentence: Optional[str] = ""
+
+
+class StatusUpdateRequest(BaseModel):
+    status: str
+
 
 # ==========================================
-# 5. 主体布局：双栏极简
+# 4. 后端路由与大模型交互
 # ==========================================
-left_col, right_col = st.columns([1, 1])
+@app.get("/api/cards")
+def get_cards(tag: Optional[str] = None, filter_status: Optional[str] = "learning"):
+    cards = db_cards
+    if filter_status:
+        cards = [c for c in cards if c.get("status", "learning") == filter_status]
+    if tag and tag != "全部":
+        cards = [c for c in cards if tag in c["tags"]]
+    return cards[::-1]
 
-# --- 左栏：输入与 AI 生成端 ---
-with left_col:
-    
-    # 🌲 森林树洞部分
-    with st.container(border=True):
-        st.markdown("<span style='color:#846226; font-weight:bold; font-size:13px;'>🌲 森林树洞 · 截图/PDF/随手记</span>", unsafe_allow_html=True)
-        st.markdown("<span style='color:#a49070; font-size:11px; display:block; margin-bottom:6px;'>上传截图、PDF 或图片，AI 自动提取生词。</span>", unsafe_allow_html=True)
-        
-        st.markdown("<div class='hollow-container'>", unsafe_allow_html=True)
-        
-        # 使用自增 counter 来作为组件 key，只要发生了解析，key一变，第二次就能无缝上传
-        uploader_key = f"hollow_uploader_{st.session_state.uploader_counter}"
-        hollow_file = st.file_uploader(
-            "选择文件", 
-            type=["png", "jpg", "jpeg", "webp", "pdf"], 
-            key=uploader_key, 
-            label_visibility="collapsed"
-        )
-        
-        if hollow_file is not None:
-            file_bytes = hollow_file.read()
-            filename = hollow_file.name.lower()
-            extracted_text = ""
-            
-            if not st.session_state.hollow_words:
-                with st.spinner("🌲 树洞正在努力解析文件..."):
-                    try:
-                        if filename.endswith(".pdf"):
-                            reader = PdfReader(io.BytesIO(file_bytes))
-                            for page in reader.pages[:5]:
-                                extracted_text += page.extract_text() or ""
-                        else:
-                            # 多模态解析图片
-                            base64_image = base64.b64encode(file_bytes).decode('utf-8')
-                            response = client_ai.chat.completions.create(
-                                model="glm-4v-flash",
-                                messages=[{
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "text", "text": "请仔细辨认并提取出图片里的所有日语文本。不要任何解释说明，直接输出原文。"},
-                                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                                    ]
-                                }],
-                                temperature=0.1
-                            )
-                            extracted_text = response.choices[0].message.content.strip()
 
-                        if extracted_text.strip():
-                            # 分词
-                            filter_prompt = (
-                                "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
-                                f"目标文本：\n{extracted_text}\n\n"
-                                "请直接返回一个纯JSON格式 of 字符串数组，例：[\"単語1\", \"単語2\"]，不要输出任何非 JSON 字符。"
-                            )
-                            res = client_ai.chat.completions.create(
-                                model="glm-4-flash",
-                                messages=[{"role": "user", "content": filter_prompt}],
-                                temperature=0.2
-                            )
-                            raw_arr = res.choices[0].message.content.strip()
-                            if raw_arr.startswith("```"):
-                                raw_arr = raw_arr.split("\n", 1)[1].rsplit("\n", 1)[0]
-                            st.session_state.hollow_words = json.loads(raw_arr)
-                            
-                            # 解析完后，自增计数器，下一次用户点击上传时，使用一个崭新的 uploader
-                            st.session_state.uploader_counter += 1
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"树洞解析出错: {e}")
-                        st.session_state.hollow_words = ["解析失败"]
-                        st.session_state.uploader_counter += 1
+@app.post("/api/cards")
+def save_or_update_card(card: CardItem):
+    global db_cards
+    if not card.word or not card.meaning_zh:
+        raise HTTPException(status_code=400, detail="生词和中文释义不能为空")
 
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # 渲染横向排列的单词胶囊
-        if st.session_state.hollow_words:
-            st.markdown("<span style='font-size:11px; font-weight:bold; color:var(--primary-color);'>💡 点击下方胶囊直接填入捕获终端：</span>", unsafe_allow_html=True)
-            
-            # 使用 5 列横向平铺胶囊
-            cols = st.columns(5)
-            for idx, w in enumerate(st.session_state.hollow_words):
-                col_idx = idx % 5
-                with cols[col_idx]:
-                    if st.button(w, key=f"pill_{w}_{idx}", use_container_width=True):
-                        st.session_state.temp_word = w
-                        st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # 🌲 生词捕获终端
-    st.subheader("🌲 生词捕获终端")
-
-    input_word = st.text_input("日语生词 *", value=st.session_state.temp_word)
-
-    # ==========================================
-    # 【唤醒 AI 智能解析】
-    # ==========================================
-    if st.button("🪄 唤醒 AI 智能解析填表"):
-        if not input_word.strip():
-            st.warning("请先输入生词")
-        else:
-            with st.spinner("🍃 智能助手正在深度解析中..."):
-                try:
-                    prompt = (
-                        "你是一个精通中日双语的日语教学专家。请为以下日语生词进行解析。\n"
-                        f"待解析生词：{input_word.strip()}\n\n"
-                        "请严格按照以下 JSON 格式返回数据，不要包含任何 markdown 标记，不要有任何废话：\n"
-                        "{\n"
-                        '  "furigana": "该生词的纯假名发音",\n'
-                        '  "meaning_zh": "该生词最准确的中文含义",\n'
-                        '  "meaning_ja": "【绝对只能使用纯日语！】用简单易懂、符合N4水平的日语来解释该词的意思。",\n'
-                        '  "tags": "只能从以下两个标签中选择一个填入：若属于动漫/日剧/台词填\'日剧\'，若是通用生活口语则填\'日常\'，或者你可以提炼出简洁的1-3字具体情境标签",\n'
-                        '  "example_sentence": "【请务必给出三句不同使用语境、生活高频的完美日语例句，并分别附带对应的括号中文翻译。格式参考以下范例，必须换行排版：\\n1. 第一句例句（第一句的翻译）\\n2. 第二句例句（第二句的翻译）\\n3. 第三句例句（第三句的翻译）"\n'
-                        "}"
-                    )
-                    response = client_ai.chat.completions.create(
-                        model="glm-4-flash",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.3,
-                    )
-                    raw_text = response.choices[0].message.content.strip()
-                    if raw_text.startswith("```"):
-                        raw_text = raw_text.split("\n", 1)[1].rsplit("\n", 1)[0]
-                    ai_data = json.loads(raw_text)
-
-                    # 数据安全的放入临时中转变量中
-                    st.session_state.temp_word = input_word.strip()
-                    st.session_state.temp_furi = ai_data.get("furigana", "")
-                    st.session_state.temp_zh = ai_data.get("meaning_zh", "")
-                    st.session_state.temp_ja = ai_data.get("meaning_ja", "")
-                    st.session_state.temp_tags = ai_data.get("tags", "日常")
-                    st.session_state.temp_sentence = ai_data.get("example_sentence", "")
-
-                    st.success("✨ 解析成功！数据已同步至下方的属性面板，请核对。")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"智能解析失败: {e}")
-
-    st.markdown("---")
-    st.markdown("📋 **属性校对面板**")
-    
-    with st.form("clean_and_safe_form", clear_on_submit=False):
-        
-        col_f, col_z = st.columns(2)
-        with col_f:
-            furi_val = st.text_input("假名发音", value=st.session_state.temp_furi)
-        with col_z:
-            zh_val = st.text_input("中文释义", value=st.session_state.temp_zh)
-
-        ja_val = st.text_area("简易日解 (独立思维模式)", value=st.session_state.temp_ja)
-        tags_val = st.text_input("情境标签", value=st.session_state.temp_tags)
-        sentence_val = st.text_area("高频情境例句 (已生成三句例句)", value=st.session_state.temp_sentence)
-
-        submit_btn = st.form_submit_button("🌱 确认归档入库", use_container_width=True)
-        
-        if submit_btn:
-            if not input_word.strip() or not zh_val.strip() or not furi_val.strip():
-                st.error("生词、假名与中文释义不能为空！")
-            else:
-                new_card = {
-                    "id": max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1,
-                    "word": input_word.strip(),
-                    "furigana": furi_val.strip(),
-                    "meaning_ja": ja_val.strip(),
-                    "meaning_zh": zh_val.strip(),
-                    "example_sentence": sentence_val.strip(),
-                    "tags": tags_val.strip() if tags_val.strip() else "日常",
-                    "status": "learning"
-                }
-                st.session_state.cards.append(new_card)
-                save_db(st.session_state.cards)
-                
-                # 安全地清空中转值
-                st.session_state.temp_word = ""
-                st.session_state.temp_furi = ""
-                st.session_state.temp_zh = ""
-                st.session_state.temp_ja = ""
-                st.session_state.temp_tags = "日常"
-                st.session_state.temp_sentence = ""
-                st.session_state.hollow_words = []
-                
-                st.success(f"生词「{input_word}」已成功归档！")
-                st.rerun()
-
-# --- 右栏：原生折叠卡片列表与过滤 ---
-with right_col:
-    st.subheader("📚 词库检索与复习")
-
-    # 顶层过滤器
-    col_filter_t, col_filter_s = st.columns(2)
-    with col_filter_t:
-        tag_options = ["全部", "日常", "日剧"]
-        for c in st.session_state.cards:
-            t = c.get("tags", "日常")
-            if t not in tag_options:
-                tag_options.append(t)
-        selected_tag = st.selectbox("标签筛选", tag_options)
-    with col_filter_s:
-        selected_status = st.radio("学习状态", ["正在复习", "已掌握"], horizontal=True)
-
-    status_key = "learning" if selected_status == "正在复习" else "mastered"
-
-    # 数据过滤
-    filtered_cards = st.session_state.cards
-    if selected_tag != "全部":
-        filtered_cards = [c for c in filtered_cards if selected_tag in c.get("tags", "")]
-    filtered_cards = [c for c in filtered_cards if c.get("status", "learning") == status_key]
-
-    # 按倒序展示
-    filtered_cards = filtered_cards[::-1]
-
-    if not filtered_cards:
-        st.info("当前筛选下没有卡片，快去左侧捕获新词吧！")
+    # 规范化标签处理
+    if "日常" in card.tags or "生活" in card.tags:
+        card.tags = "日常"
+    elif "剧" in card.tags or "动漫" in card.tags:
+        card.tags = "日剧"
     else:
-        for idx, card in enumerate(filtered_cards):
-            card_id = card["id"]
-            card_label = f"🏷️ {card.get('tags', '日常')} | {card['word']} 【{card['furigana']}】"
-            
-            with st.expander(card_label, expanded=False):
-                st.markdown(f"**中文含义**：<span style='color:#c96868; font-weight:bold;'>{card['meaning_zh']}</span>", unsafe_allow_html=True)
-                if card.get("meaning_ja"):
-                    st.markdown(f"**日文释义** (N4纯日解)：\n> {card['meaning_ja']}")
-                if card.get("example_sentence"):
-                    st.markdown(f"**例句情境**：\n\n{card['example_sentence']}")
-                
-                # 操作按键
-                col_btn1, col_btn2, col_btn3 = st.columns([2, 2, 1])
-                with col_btn1:
-                    if card["status"] == "learning":
-                        if st.button("🌱 斩杀 (掌握)", key=f"mast_{card_id}_{idx}"):
-                            for c in st.session_state.cards:
-                                if c["id"] == card_id:
-                                    c["status"] = "mastered"
-                            save_db(st.session_state.cards)
-                            st.rerun()
-                    else:
-                        if st.button("🍂 召回 (复习)", key=f"relearn_{card_id}_{idx}"):
-                            for c in st.session_state.cards:
-                                if c["id"] == card_id:
-                                    c["status"] = "learning"
-                            save_db(st.session_state.cards)
-                            st.rerun()
-                with col_btn2:
-                    if st.button("✏️ 载入编辑", key=f"edit_{card_id}_{idx}"):
-                        st.session_state.temp_word = card["word"]
-                        st.session_state.temp_furi = card["furigana"]
-                        st.session_state.temp_zh = card["meaning_zh"]
-                        st.session_state.temp_ja = card["meaning_ja"]
-                        st.session_state.temp_tags = card.get("tags", "日常")
-                        st.session_state.temp_sentence = card["example_sentence"]
-                        st.rerun()
-                with col_btn3:
-                    if st.button("🗑️", key=f"del_{card_id}_{idx}"):
-                        st.session_state.cards = [c for c in st.session_state.cards if c["id"] != card_id]
-                        save_db(st.session_state.cards)
-                        st.success("卡片已删除")
-                        st.rerun()
+        card.tags = "日常"
 
-    # ==========================================
-    # 💾 右下角：并排备份与导入控制台（彻底修复排版，完全兼容手机与电脑）
-    # ==========================================
-    st.markdown("<br><hr style='border: 1px dashed #8ba89e; margin: 15px 0;'>", unsafe_allow_html=True)
-    st.markdown("<span style='color:#846226; font-weight:bold; font-size:13px; display:block; margin-bottom:10px;'>💾 数据备份与恢复</span>", unsafe_allow_html=True)
+    if card.id is not None:
+        for idx, item in enumerate(db_cards):
+            if item["id"] == card.id:
+                db_cards[idx] = card.dict()
+                save_db(db_cards)
+                return {"status": "success", "action": "updated"}
+        raise HTTPException(status_code=404, detail="未找到对应的卡片")
+    else:
+        new_id = max([c["id"] for c in db_cards]) + 1 if db_cards else 1
+        card_dict = card.dict()
+        card_dict["id"] = new_id
+        card_dict["status"] = "learning"
+        db_cards.append(card_dict)
+        save_db(db_cards)
+        return {"status": "success", "action": "created"}
+
+
+@app.delete("/api/cards/{card_id}")
+def delete_card(card_id: int):
+    global db_cards
+    db_cards = [c for c in db_cards if c["id"] != card_id]
+    save_db(db_cards)
+    return {"status": "success"}
+
+
+@app.post("/api/cards/{card_id}/status")
+def update_card_status(card_id: int, payload: StatusUpdateRequest):
+    for item in db_cards:
+        if item["id"] == card_id:
+            item["status"] = payload.status
+            save_db(db_cards)
+            return {"status": "success"}
+    raise HTTPException(status_code=404, detail="未找到指定卡片")
+
+
+@app.post("/api/ai-generate")
+def ai_generate(payload: AIRequest):
+    if not payload.word:
+        raise HTTPException(status_code=400, detail="生词不能为空")
     
-    col_export_btn, col_import_btn = st.columns(2)
+    clean_word = payload.word.strip()
     
-    with col_export_btn:
-        # 导出 CSV 备份
-        if st.session_state.cards:
-            df = pd.DataFrame(st.session_state.cards)
-            df_export = df.copy()
-            df_export["status"] = df_export["status"].apply(lambda x: "已掌握" if x == "mastered" else "正在复习")
-            csv_data = df_export.to_csv(index=False, encoding="utf-8-sig")
-            st.download_button(
-                label="📤 导出 CSV 备份",
-                data=csv_data,
-                file_name="my_japanese_cards.csv",
-                mime="text/csv",
-                use_container_width=True,
-                key="footer_export_button"
-            )
-            
-    with col_import_btn:
-        # 导入 CSV 备份（原生改造，点击即弹出文件窗口，无任何多余下拉箭头）
-        st.markdown("<div class='footer-import-container'>", unsafe_allow_html=True)
-        footer_upload = st.file_uploader(
-            "📥 导入 CSV 备份", 
-            type=["csv"], 
-            key="footer_csv_uploader",
-            label_visibility="collapsed"
+    prompt = (
+        "你是一个精通中日双语的日语教学专家。请为以下日语生词进行解析。\n"
+        f"待解析生词：{clean_word}\n"
+        f"用户提供的情境提示：{payload.hint_sentence if payload.hint_sentence else '无'}\n\n"
+        "请严格按照以下 JSON 格式返回数据，不要包含任何 markdown 标记，不要有任何废话：\n"
+        "{\n"
+        '  "furigana": "该生词的纯假名发音",\n'
+        '  "meaning_zh": "该生词最准确的中文含义",\n'
+        '  "meaning_ja": "【绝对只能使用纯日语！】用简单易懂、符合N4水平的日语来解释该词的意思。",\n'
+        '  "context_source": "情境出处，如日剧台词、日常口语",\n'
+        '  "example_sentence": "一句高频生活例句并附带括号中文翻译",\n'
+        '  "tags": "只能从以下两个标签中选择一个填入：若属于动漫/日剧/台词填\'日剧\'，若是通用生活口语则填\'日常\'"\n'
+        "}"
+    )
+
+    try:
+        response = client_ai.chat.completions.create(
+            model="glm-4-flash",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
         )
-        if footer_upload is not None:
-            try:
-                df_import = pd.read_csv(footer_upload, encoding="utf-8-sig")
-                imported_cards = []
-                new_id = max([c["id"] for c in st.session_state.cards]) + 1 if st.session_state.cards else 1
-                for _, row in df_import.iterrows():
-                    status_raw = row.get("status", "正在复习")
-                    status = "mastered" if status_raw == "已掌握" else "learning"
-                    
-                    old_source = str(row.get("context_source", "")).strip()
-                    new_tags = str(row.get("tags", "日常")).strip()
-                    if old_source and old_source != "nan" and old_source != "通用":
-                        new_tags = old_source
+        raw_text = response.choices[0].message.content.strip()
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("\n", 1)[1].rsplit("\n", 1)[0]
+        return json.loads(raw_text)
+    except Exception as e:
+        return {"error_type": "SDK_ERROR", "msg": f"大模型通讯失败: {str(e)}"}
 
-                    imported_cards.append({
-                        "id": new_id,
-                        "word": str(row.get("word", "")).strip(),
-                        "furigana": str(row.get("furigana", "")).strip(),
-                        "meaning_ja": str(row.get("meaning_ja", "")).strip(),
-                        "meaning_zh": str(row.get("meaning_zh", "")).strip(),
-                        "example_sentence": str(row.get("example_sentence", "")).strip(),
-                        "tags": new_tags,
-                        "status": status
-                    })
-                    new_id += 1
-                st.session_state.cards.extend(imported_cards)
-                save_db(st.session_state.cards)
-                st.success(f"🎉 成功导入 {len(imported_cards)} 条数据！")
-                st.rerun()
-            except Exception as e:
-                st.error(f"导入解析失败：{e}")
-        st.markdown("</div>", unsafe_allow_html=True)
+
+@app.post("/api/insight/file-scan")
+async def scan_file(file: UploadFile = File(...)):
+    filename = file.filename.lower()
+    extracted_text = ""
+
+    if filename.endswith(".pdf"):
+        try:
+            pdf_bytes = await file.read()
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            for page in reader.pages[:5]:
+                extracted_text += page.extract_text() or ""
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"PDF文本解析失败: {str(e)}")
+
+    elif filename.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp")):
+        try:
+            image_bytes = await file.read()
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            response = client_ai.chat.completions.create(
+                model="glm-4v-flash",
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "请仔细辨认并提取出图片里的所有日语文本。不要任何解释说明，直接输出原文。"},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]
+                }],
+                temperature=0.1
+            )
+            extracted_text = response.choices[0].message.content.strip()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"多模态视觉解析失败: {str(e)}")
+    else:
+        raise HTTPException(status_code=400, detail="暂不支持此格式文件")
+
+    if not extracted_text.strip():
+        return {"words": []}
+
+    try:
+        filter_prompt = (
+            "请从以下文本中提取出适合N4-N3级别的核心词汇。\n"
+            f"目标文本：\n{extracted_text}\n\n"
+            "请直接返回一个纯JSON格式的字符串数组，例：[\"単語1\", \"単語2\"]"
+        )
+        res = client_ai.chat.completions.create(
+            model="glm-4-flash",
+            messages=[{"role": "user", "content": filter_prompt}],
+            temperature=0.2
+        )
+        raw_arr = res.choices[0].message.content.strip()
+        if raw_arr.startswith("```"):
+            raw_arr = raw_arr.split("\n", 1)[1].rsplit("\n", 1)[0]
+        return {"words": json.loads(raw_arr)}
+    except:
+        return {"words": [w.strip() for w in extracted_text.split() if w.strip()][:15]}
+
+
+@app.get("/api/cards/export")
+def export_excel():
+    output = io.StringIO()
+    output.write('\ufeff')  # 写入BOM防止Excel打开乱码
+    writer = csv.writer(output)
+    writer.writerow(["生词", "假名发音", "日文释义", "中文含义", "情境出处", "高频生活例句", "标签", "掌握状态"])
+    for c in db_cards:
+        status_zh = "已掌握" if c.get("status") == "mastered" else "正在复习"
+        writer.writerow([c["word"], c["furigana"], c.get("meaning_ja", ""), c["meaning_zh"], c["context_source"],
+                         c["example_sentence"], c["tags"], status_zh])
+    output.seek(0)
+    return StreamingResponse(io.BytesIO(output.getvalue().encode('utf-8')), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=my_japanese_cards.csv"})
+
+
+@app.post("/api/cards/import")
+async def import_excel(file: UploadFile = File(...)):
+    global db_cards
+    filename = file.filename.lower()
+    if not filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="请上传由本系统导出的 CSV 表格文件")
+    try:
+        contents = await file.read()
+        text_content = contents.decode("utf-8-sig", errors="ignore")
+        f_input = io.StringIO(text_content)
+        reader = csv.reader(f_input)
+        header = next(reader, None)
+        if not header or header[0] != "生词" or header[1] != "假名发音":
+            raise HTTPException(status_code=400, detail="表格表头不匹配，请使用标准的导出模板")
+        
+        new_id = max([c["id"] for c in db_cards]) + 1 if db_cards else 1
+        imported_count = 0
+        for row in reader:
+            if not row or len(row) < 2:
+                continue
+            word = row[0].strip()
+            furigana = row[1].strip()
+            if not word or not furigana:
+                continue
+            meaning_ja = row[2].strip() if len(row) > 2 else ""
+            meaning_zh = row[3].strip() if len(row) > 3 else ""
+            context_source = row[4].strip() if len(row) > 4 else "导入"
+            example_sentence = row[5].strip() if len(row) > 5 else ""
+            tags = row[6].strip() if len(row) > 6 else "日常"
+            status_zh = row[7].strip() if len(row) > 7 else "正在复习"
+            status = "mastered" if status_zh == "已掌握" else "learning"
+            
+            db_cards.append({
+                "id": new_id, "word": word, "furigana": furigana, "meaning_ja": meaning_ja,
+                "meaning_zh": meaning_zh, "context_source": context_source,
+                "example_sentence": example_sentence, "tags": tags, "status": status
+            })
+            new_id += 1
+            imported_count += 1
+        save_db(db_cards)
+        return {"status": "success", "imported_count": imported_count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导入解析失败: {str(e)}")
+
+
+# ==========================================
+# 5. 前端全景页面
+# ==========================================
+@app.get("/", response_class=HTMLResponse)
+def index_page():
+    return """
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>情境生词消灭器</title>
+        <style>
+            :root {
+                --forest-dark: #2d4a43; --forest-leaf: #4a7c6c; --forest-light: #f4f7f5;
+                --wood-earth: #8ba89e; --text-main: #2c3e35; --text-sub: #60756c;
+                --card-bg: #ffffff; --danger: #c96868; --success: #5ba37e;
+            }
+            body {
+                background-color: var(--forest-light); color: var(--text-main);
+                font-family: "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column;
+            }
+            header {
+                background: var(--forest-dark); color: #ffffff; padding: 12px 24px; box-shadow: 0 2px 8px rgba(45,74,67,0.1);
+                display: flex; justify-content: space-between; align-items: center; height: 36px;
+            }
+            .app-container { display: flex; flex: 1; overflow: hidden; padding: 16px; gap: 20px; box-sizing: border-box; }
+
+            .left-panel {
+                width: 480px; flex-shrink: 0; background: var(--card-bg); border-radius: 16px; padding: 16px; 
+                box-shadow: 0 4px 14px rgba(45,74,67,0.05); display: flex; flex-direction: column; overflow-y: auto; border: 1px solid #e2e9e6;
+            }
+            .right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+            .tree-hollow { background: #fdfaf4; border: 1px dashed var(--wood-earth); border-radius: 8px; padding: 10px; margin-bottom: 14px; }
+            .word-pill { display: inline-block; background: #ebdcb9; color: #5a4525; padding: 4px 10px; border-radius: 14px; font-size: 12px; margin: 4px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+            .word-pill:hover { background: var(--forest-leaf); color: white; }
+
+            .control-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+            #tag-bar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+            .tag-btn { background: #e9f0ed; color: var(--text-sub); border: none; padding: 6px 12px; border-radius: 20px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+            .tag-btn.active { background: var(--forest-leaf); color: white; }
+
+            .view-switch { background: #e2e9e6; padding: 4px; border-radius: 8px; display: flex; gap: 4px; }
+            .switch-btn { border: none; background: transparent; padding: 4px 10px; font-size: 12px; border-radius: 6px; cursor: pointer; }
+            .switch-btn.active { background: white; color: var(--forest-dark); font-weight: bold; }
+
+            .cards-scroll-area { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; padding-right: 4px; align-content: start; }
+
+            .card-perspective { perspective: 1000px; width: 100%; min-height: 105px; position: relative; }
+            .card-rotator { position: relative; width: 100%; height: 100%; min-height: 105px; transition: transform 0.4s ease; transform-style: preserve-3d; cursor: pointer; }
+            .is-flipped { transform: rotateY(180deg); }
+
+            .face-front, .face-back {
+                backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 12px; padding: 12px; padding-right: 55px; box-sizing: border-box; width: 100%; height: 100%;
+                background: var(--card-bg); border: 1px solid #e2e9e6; box-shadow: 0 2px 6px rgba(45,74,67,0.03);
+            }
+            .face-back { transform: rotateY(180deg); position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #fafcfb; border: 1px solid var(--wood-earth); overflow-y: auto; }
+
+            h3 { margin: 0 0 12px 0; color: var(--forest-dark); font-size: 15px; border-bottom: 2px solid #e9f0ed; padding-bottom: 4px; }
+            .form-group { margin-bottom: 8px; }
+            .form-group label { display: block; font-size: 11px; color: var(--text-sub); font-weight: bold; margin-bottom: 2px; }
+            .form-group input, .form-group textarea { width: 100%; padding: 6px 8px; background: #fafcfb; border: 1px solid #d3ded9; color: var(--text-main); border-radius: 6px; box-sizing: border-box; font-size: 13px; }
+            .form-group input:focus, .form-group textarea:focus { border-color: var(--forest-leaf); outline: none; }
+
+            .btn-action { width: 100%; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-bottom: 8px; }
+            .btn-ai { background: var(--forest-leaf); color: white; }
+            .btn-submit { background: var(--success); color: white; }
+
+            .card-actions { position: absolute; right: 8px; top: 12px; z-index: 100; display: flex; gap: 4px; justify-content: flex-end; }
+            .mini-btn { border: none; background: #e9f0ed; font-size: 11px; padding: 4px 6px; border-radius: 4px; cursor: pointer; color: var(--text-main); }
+            .mini-btn:hover { background: var(--wood-earth); color: white; }
+            .mini-btn.del { background: #fdf0f0; color: var(--danger); }
+            .mini-btn.del:hover { background: var(--danger); color: white; }
+
+            @media (max-width: 800px) {
+                body { height: auto; overflow-y: auto; }
+                .app-container { flex-direction: column; overflow: visible; height: auto; }
+                .left-panel { width: 100%; height: auto; overflow: visible; box-sizing: border-box; margin-bottom: 20px; }
+                .right-panel { width: 100%; height: auto; overflow: visible; }
+                .cards-scroll-area { grid-template-columns: 1fr; overflow-y: visible; height: auto; }
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div style="font-weight: bold; font-size: 15px;">🍃 情境生词消灭器 <span style="font-size:11px; background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">标准版</span></div>
+            <div style="display: flex; gap: 8px;">
+                <input type="file" id="excel-importer" accept=".csv" onchange="importFromExcel()" style="display: none;">
+                <button onclick="document.getElementById('excel-importer').click()" class="mini-btn" style="background:#55826b; color:white; font-weight:bold; padding: 6px 12px;">📥 导入表格数据</button>
+                <button onclick="exportToExcel()" class="mini-btn" style="background:#5ba37e; color:white; font-weight:bold; padding: 6px 12px;">📊 导出 Excel 表格</button>
+            </div>
+        </header>
+
+        <div class="app-container">
+            <div class="left-panel">
+                <div class="tree-hollow">
+                    <div style="font-size:11px; font-weight:bold; color:#846226; margin-bottom:4px; display:flex; justify-content:space-between;">
+                        <span>🌲 森林树洞 · 截图/PDF/随手记</span>
+                        <span id="scan-loading" style="color:var(--forest-leaf); display:none;">AI识别中...</span>
+                    </div>
+                    <input type="file" id="file-scanner" onchange="uploadAndScanFile()" style="font-size:11px; width:100%; margin-bottom:6px; color: var(--text-sub);">
+                    <div id="hollow-pills" style="max-height:80px; overflow-y:auto; border-top:1px dashed #e1d6be; padding-top:4px;">
+                        <span style="font-size:11px; color:#a49070; font-style:italic;">上传日剧截图或PDF，AI分词。</span>
+                    </div>
+                </div>
+
+                <h3 id="panel-title">🌲 生词捕获终端</h3>
+                <input type="hidden" id="in-id">
+
+                <div class="form-group"><label>日语生词 *</label><input id="in-word" type="text" placeholder="例：遠慮する"></div>
+                <div class="form-group"><label>当前情境台词 (选填)</label><textarea id="in-hint" rows="2" placeholder="贴入当前句子..."></textarea></div>
+                <button id="btn-ai" onclick="runAIAssistant()" class="btn-action btn-ai">🪄 唤醒 AI 智能解析填表</button>
+
+                <div style="font-size: 11px; font-weight: bold; color: var(--forest-leaf); margin-bottom: 6px;">📋 属性校对面板</div>
+                <div class="form-group"><label>假名发音</label><input id="in-furi" type="text"></div>
+                <div class="form-group"><label>中文释义</label><input id="in-zh" type="text"></div>
+                <div class="form-group"><label>简易日解 (独立思维模式)</label><textarea id="in-ja" rows="2"></textarea></div>
+                <div class="form-group"><label>情境出处</label><input id="in-source" type="text"></div>
+                <div class="form-group"><label>标签分组</label><input id="in-tags" type="text" placeholder="日常 / 日剧"></div>
+                <div class="form-group"><label>高频情境例句</label><textarea id="in-sentence" rows="2"></textarea></div>
+
+                <div style="display:flex; gap:8px;">
+                    <button id="btn-cancel-edit" onclick="cancelEditMode()" class="btn-action" style="background:#e9f0ed; display:none; flex:1;">取消</button>
+                    <button id="btn-save" onclick="submitCard()" class="btn-action btn-submit" style="flex:2;">🌱 确认归档入库</button>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <div class="control-row">
+                    <div id="tag-bar"></div>
+                    <div class="view-switch">
+                        <button id="sw-learning" onclick="switchStatusView('learning')" class="switch-btn active">📥 正在复习</button>
+                        <button id="sw-mastered" onclick="switchStatusView('mastered')" class="switch-btn">🏆 已斩杀</button>
+                    </div>
+                </div>
+                <div id="cards-container" class="cards-scroll-area"></div>
+            </div>
+        </div>
+
+        <script>
+            let currentTag = "全部"; let currentStatus = "learning";
+
+            // 监听粘贴板事件，支持直接贴图OCR识词
+            document.addEventListener('paste', async (e) => {
+                const items = e.clipboardData.items;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf("image") !== -1) {
+                        const file = items[i].getAsFile();
+                        const formData = new FormData(); formData.append("file", file, "clipboard.png");
+                        triggerDirectScan(formData);
+                    }
+                }
+            });
+
+            async function uploadAndScanFile() {
+                const fileInput = document.getElementById('file-scanner');
+                if (fileInput.files.length === 0) return;
+                const formData = new FormData(); formData.append("file", fileInput.files[0]);
+                triggerDirectScan(formData);
+            }
+
+            async function triggerDirectScan(formData) {
+                const loading = document.getElementById('scan-loading');
+                const hollow = document.getElementById('hollow-pills');
+                loading.style.display = 'inline';
+                try {
+                    const res = await fetch('/api/insight/file-scan', { method: 'POST', body: formData });
+                    const data = await res.json();
+                    if(data.words && data.words.length > 0) {
+                        hollow.innerHTML = data.words.map(w => `<span class="word-pill" onclick="claimWord('${w}')">${w}</span>`).join('');
+                    } else { hollow.innerHTML = `<span style="font-size:11px; color:#a49070;">未提取到显著生词。</span>`; }
+                } catch (e) { alert('文件扫描网络异常'); } finally { loading.style.display = 'none'; }
+            }
+
+            function claimWord(word) {
+                document.getElementById('in-word').value = word;
+                document.getElementById('in-hint').value = "";
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            async function runAIAssistant() {
+                const wordInput = document.getElementById('in-word');
+                const hintInput = document.getElementById('in-hint');
+                const btn = document.getElementById('btn-ai');
+                let cleanWord = wordInput.value.replace(/\[.*?\]\(.*?\)/g, "").replace(/[\[\]\(\)]/g, "").trim();
+                wordInput.value = cleanWord;
+
+                if(!cleanWord) { alert('请输入生词！'); return; }
+                btn.innerText = "🍃 检索中..."; btn.disabled = true;
+
+                try {
+                    const res = await fetch('/api/ai-generate', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ word: cleanWord, hint_sentence: hintInput.value.trim() })
+                    });
+                    const data = await res.json();
+                    if (data.error_type) { alert(data.msg); return; }
+
+                    document.getElementById('in-furi').value = data.furigana || '';
+                    document.getElementById('in-zh').value = data.meaning_zh || '';
+                    document.getElementById('in-ja').value = data.meaning_ja || '';
+                    document.getElementById('in-source').value = data.context_source || '通用';
+                    document.getElementById('in-sentence').value = data.example_sentence || '';
+
+                    let tag = data.tags || '日常';
+                    if(tag.includes("常") || tag.includes("活")) tag = "日常";
+                    if(tag.includes("剧") || tag.includes("漫")) tag = "日剧";
+                    document.getElementById('in-tags').value = tag;
+                } catch(e) { alert('网络通信异常'); } finally { btn.innerText = "🪄 唤醒 AI 智能解析填表"; btn.disabled = false; }
+            }
+
+            async function loadCards() {
+                const res = await fetch(`/api/cards?tag=${encodeURIComponent(currentTag)}&filter_status=${currentStatus}`);
+                const cards = await res.json();
+                renderTagBar(["全部", "日常", "日剧"]); renderCards(cards);
+            }
+
+            function renderTagBar(tags) {
+                document.getElementById('tag-bar').innerHTML = tags.map(tag => `
+                    <button onclick="switchTag('${tag}')" class="tag-btn ${currentTag === tag ? 'active' : ''}">${tag}</button>
+                `).join('');
+            }
+            function switchTag(tag) { currentTag = tag; loadCards(); }
+            function switchStatusView(status) {
+                currentStatus = status;
+                document.getElementById('sw-learning').classList.toggle('active', status === 'learning');
+                document.getElementById('sw-mastered').classList.toggle('active', status === 'mastered');
+                loadCards();
+            }
+
+            function renderCards(cards) {
+                const container = document.getElementById('cards-container');
+                if(!cards || cards.length === 0) { container.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-sub);">空空如也。</div>`; return; }
+
+                container.innerHTML = cards.map(c => `
+                    <div class="card-perspective">
+                        <div class="card-rotator" onclick="toggleCardFlip(event, this)">
+                            <div class="face-front" style="display:flex; flex-direction:column; justify-content:space-between;">
+                                <div>
+                                    <span style="font-size:10px; color:var(--forest-leaf); background:#e9f0ed; padding:1px 6px; border-radius:4px; font-weight:bold;">${c.context_source}</span>
+                                </div>
+                                <div style="margin: 4px 0; display:flex; align-items:baseline; gap:8px;">
+                                    <div style="font-size: 19px; font-weight: bold; color: var(--forest-dark);">${c.word}</div>
+                                    <div style="font-size: 12px; color: var(--forest-leaf);">[${c.furigana}]</div>
+                                </div>
+                                <div style="font-size:11px; color:var(--text-sub); border-top: 1px dotted #e2e9e6; padding-top:4px; line-height:1.4; word-break:break-all;">
+                                    ${c.example_sentence}
+                                </div>
+                            </div>
+                            <div class="face-back" style="display:flex; flex-direction:column; justify-content:space-between;">
+                                <div>
+                                    <span style="font-size:11px; font-weight:bold; color:var(--forest-leaf);">${c.word}</span>
+                                </div>
+                                ${c.meaning_ja ? `<div style="font-size:10px; color:var(--text-main); background:#f0f4f2; padding:3px 6px; border-radius:4px; line-height:1.3; margin: 2px 0;">${c.meaning_ja}</div>` : ''}
+                                <div style="font-size:12px; color:var(--text-sub); font-weight:bold; border-top: 1px dashed #d3ded9; padding-top:4px; word-break:break-all;">
+                                    中文：<span style="color:#335c4b; font-weight:normal;">${c.meaning_zh}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-actions">
+                            <button onclick="enterEditMode(${JSON.stringify(c).replace(/"/g, '&quot;')})" class="mini-btn">✏️</button>
+                            ${c.status === 'learning' ? 
+                                `<button onclick="changeStatus(${c.id}, 'mastered')" class="mini-btn" style="color:var(--success)">🌱</button>` : 
+                                `<button onclick="changeStatus(${c.id}, 'learning')" class="mini-btn">🍂</button>`
+                            }
+                            <button onclick="deleteCard(${c.id})" class="mini-btn del">🗑️</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            function toggleCardFlip(e, element) {
+                if(e.target.tagName.toLowerCase() === 'button' || e.target.classList.contains('mini-btn')) return;
+                element.classList.toggle('is-flipped');
+            }
+
+            function enterEditMode(card) {
+                document.getElementById('panel-title').innerText = "✏️ 正在修改生词卡片";
+                document.getElementById('in-id').value = card.id;
+                document.getElementById('in-word').value = card.word;
+                document.getElementById('in-furi').value = card.furigana;
+                document.getElementById('in-zh').value = card.meaning_zh;
+                document.getElementById('in-ja').value = card.meaning_ja || '';
+                document.getElementById('in-source').value = card.context_source;
+                document.getElementById('in-sentence').value = card.example_sentence;
+                document.getElementById('in-tags').value = card.tags;
+
+                document.getElementById('btn-cancel-edit').style.display = 'block';
+                document.getElementById('btn-save').innerText = "💾 保存修改并更新";
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            function cancelEditMode() {
+                document.getElementById('panel-title').innerText = "🌲 生词捕获终端";
+                document.getElementById('in-id').value = ""; document.getElementById('in-word').value = "";
+                document.getElementById('in-hint').value = ""; document.getElementById('in-furi').value = "";
+                document.getElementById('in-zh').value = ""; document.getElementById('in-ja').value = "";
+                document.getElementById('in-source').value = ""; document.getElementById('in-sentence').value = ""; document.getElementById('in-tags').value = "";
+                document.getElementById('btn-cancel-edit').style.display = 'none';
+                document.getElementById('btn-save').innerText = "🌱 确认归档入库";
+            }
+
+            async function submitCard() {
+                const idVal = document.getElementById('in-id').value;
+                const card = {
+                    word: document.getElementById('in-word').value.trim(), furigana: document.getElementById('in-furi').value.trim(),
+                    meaning_zh: document.getElementById('in-zh').value.trim(), meaning_ja: document.getElementById('in-ja').value.trim(),
+                    context_source: document.getElementById('in-source').value.trim() || '通用', example_sentence: document.getElementById('in-sentence').value.trim(),
+                    tags: document.getElementById('in-tags').value.trim() || '日常'
+                };
+                if(idVal) card.id = parseInt(idVal);
+                if(!card.word || !card.meaning_zh || !card.furigana) { alert('必填项不能为空！'); return; }
+                const res = await fetch('/api/cards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(card) });
+                if(res.ok) { cancelEditMode(); loadCards(); }
+            }
+
+            async function deleteCard(id) {
+                if(!confirm('确定要抹除这张卡片吗？')) return;
+                const res = await fetch(`/api/cards/${id}`, { method: 'DELETE' });
+                if(res.ok) loadCards();
+            }
+
+            async function changeStatus(id, newStatus) {
+                const res = await fetch(`/api/cards/${id}/status`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ status: newStatus }) });
+                if(res.ok) loadCards();
+            }
+
+            function exportToExcel() { window.location.href = '/api/cards/export'; }
+
+            async function importFromExcel() {
+                const fileInput = document.getElementById('excel-importer');
+                if (fileInput.files.length === 0) return;
+                
+                const file = fileInput.files[0];
+                if (!confirm(`确定要从文件 [${file.name}] 导入生词数据吗？`)) {
+                    fileInput.value = "";
+                    return;
+                }
+                
+                const formData = new FormData();
+                formData.append("file", file);
+                
+                try {
+                    const res = await fetch('/api/cards/import', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                        alert(`🎉 成功导入 ${data.imported_count} 条生词数据！`);
+                        loadCards();
+                    } else {
+                        alert(`❌ 导入失败：${data.detail || '未知错误'}`);
+                    }
+                } catch (e) {
+                    alert('❌ 网络通信异常，无法导入文件');
+                } finally {
+                    fileInput.value = "";
+                }
+            }
+
+            window.onload = loadCards;
+        </script>
+    </body>
+    </html>
+    """
+
+
+if __name__ == "__main__":
+    # 可以在标准本地环境下愉快地通过 python 直接运行，支持热重载
+    uvicorn.run("app:app", host="0.0.0.0", port=7860, reload=True)
